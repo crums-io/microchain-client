@@ -1,0 +1,32 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.crums</groupId>
+    <artifactId>microchain-client</artifactId>
+    <version>${revision}</version>
+  </parent>
+
+  <artifactId>microchain-api</artifactId>
+  <name>${project.groupId}:${project.artifactId}</name>
+  <description>
+    Shared REST API contract for microchain endpoints: entity types and JSON parsers
+    used by both microchain-cli (client) and microchain-webservices (server).
+  </description>
+
+  <dependencies>
+
+    <dependency>
+      <groupId>io.crums</groupId>
+      <artifactId>skipledger-base</artifactId>
+      <version>${skipledger.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.crums</groupId>
+      <artifactId>sql-ledger</artifactId>
+      <version>${skipledger.version}</version>
+    </dependency>
+
+  </dependencies>
+
+</project>
