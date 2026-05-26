@@ -1,11 +1,20 @@
 /**
  * HTTP client library for microchain-webservices.
  *
- * <p>The central class is {@link io.crums.micro.http.RemoteSkipLedger}, which
- * implements {@link io.crums.sldg.SkipLedger} over the microchain REST API
- * using {@link java.net.http.HttpClient}.  A read-only view is available via
- * the {@code GET /{user}/{chain}/state} endpoint; combining it with
- * {@code POST /{user}/{chain}/commit} yields the full read-write implementation.
- * </p>
+ * <p>{@link io.crums.micro.http.ChainClient} is the central class: it
+ * centralises all {@code /{user}/{chain}/} REST calls so that the CLI and
+ * future rich clients share the same networking layer.</p>
+ *
+ * <p>Currently implemented endpoints:</p>
+ * <ul>
+ *   <li>{@code GET /{user}/{chain}/state} —
+ *       {@link io.crums.micro.http.ChainClient#getState()} /
+ *       {@link io.crums.micro.http.ChainClient#getState(java.util.List, boolean, boolean)}
+ *       → {@link io.crums.sldg.Path}</li>
+ * </ul>
+ *
+ * <p>Planned: {@code /info}, {@code /salts}, {@code /sql-config}, {@code /commit}.
+ * {@link io.crums.micro.http.RemoteSkipLedger} will wrap {@code ChainClient}
+ * once the write path is ready.</p>
  */
 package io.crums.micro.http;
