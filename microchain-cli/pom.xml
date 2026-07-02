@@ -18,14 +18,8 @@
 
     <dependency>
       <groupId>io.crums</groupId>
-      <artifactId>microchain-api</artifactId>
+      <artifactId>microchain-http</artifactId>
       <version>${revision}</version>
-    </dependency>
-
-    <dependency>
-      <groupId>io.crums</groupId>
-      <artifactId>sql-ledger</artifactId>
-      <version>${skipledger.version}</version>
     </dependency>
 
     <dependency>
@@ -34,6 +28,77 @@
       <version>${picocli.version}</version>
     </dependency>
 
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.3.232</version>
+      <scope>test</scope>
+    </dependency>
+
   </dependencies>
+
+  <build>
+    <plugins>
+
+      <!-- Uber jar: java -jar mchain-VERSION.jar -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.3</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
+              <finalName>mchain-${revision}</finalName>
+              <filters>
+                <filter>
+                  <!-- drop JPMS descriptors and signature files from deps -->
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>io.crums.micro.cli.Main</mainClass>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Launch scripts: target/appassembler/bin/mchain[.bat] -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>appassembler-maven-plugin</artifactId>
+        <version>2.1.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>assemble</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <programs>
+            <program>
+              <mainClass>io.crums.micro.cli.Main</mainClass>
+              <id>mchain</id>
+            </program>
+          </programs>
+          <repositoryLayout>flat</repositoryLayout>
+          <useWildcardClassPath>true</useWildcardClassPath>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
 
 </project>
