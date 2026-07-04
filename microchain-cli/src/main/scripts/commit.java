@@ -13,7 +13,8 @@
 // Usage:
 //   jbang run --deps <group:artifact:version> microchain-cli/src/main/scripts/commit.java \
 //       <chain-url> --token <t> \
-//       [--jdbc-url <url>] [--jdbc-user <user>] [--jdbc-pass <pass>] [--batch <n>]
+//       [--jdbc-url <url>] [--jdbc-user <user>] [--jdbc-pass <pass>] [--batch <n>] \
+//       [--timezone <tz>] [--from <n>] [--to <n>] [--lag <n>]
 //
 // Example:
 //   jbang run --deps org.postgresql:postgresql:42.7.3 \
@@ -23,13 +24,6 @@
 //       --jdbc-url jdbc:postgresql://localhost:5432/mydb \
 //       --jdbc-user alice \
 //       --jdbc-pass secret
-
-// SqlLedger reads SQL DATE/TIMESTAMP cells via ResultSet.getDate(), whose
-// resulting epoch-millis value depends on the JVM default timezone. Pin it
-// to UTC so row hashes are reproducible across machines (see loadCsv.java
-// under src/test/scripts, which pins the same setting when building test
-// fixtures).
-//JAVA_OPTIONS -Duser.timezone=UTC
 
 //REPOS mavenCentral,mavenLocal
 //DEPS io.crums:microchain-http:0.1.0-SNAPSHOT
@@ -53,9 +47,11 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.sql.Connection;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.TimeZone;
 import java.util.concurrent.Callable;
 
 /**
@@ -75,7 +71,7 @@ import java.util.concurrent.Callable;
         "  2. GET /{user}/{chain}/salts       -> table salt  (token required)",
         "  3. GET /{user}/{chain}/sql-config  -> JDBC queries",
         "  4. GET /{user}/{chain}/state       -> current committed row count N",
-        "  5. Open local SqlLedger, hash rows N+1 .. M",
+        "  5. Open local SqlLedger, hash rows N .. M  (see --from / --to / --lag)",
         "  6. POST /{user}/{chain}/commit     -> updated row count"
     })
 class commit implements Callable<Integer> {
@@ -109,6 +105,15 @@ class commit implements Callable<Integer> {
       defaultValue = "1000")
   int batch;
 
+  @Option(names = {"--timezone", "--tz"},
+      description = {
+          "JVM timezone for hashing DATE/TIMESTAMP columns (default: ${DEFAULT-VALUE}).",
+          "Controls how ResultSet.getDate() interprets date values.",
+          "Must match the timezone used when any existing chain hashes were built."
+      },
+      defaultValue = "UTC")
+  String timezone;
+
   @Option(names = {"--from"},
       description = {
           "First row to hash and submit.",
@@ -117,6 +122,27 @@ class commit implements Callable<Integer> {
           "Set lower to widen the overlap, or to 1 for a full re-hash."
       })
   Long fromOverride;
+
+  @Option(names = {"--to"},
+      description = {
+          "Last row to include in this commit (inclusive).",
+          "Defaults to the total row count reported by the source ledger.",
+          "Use to exclude rows whose source transactions may not yet have",
+          "committed, since sequence-allocated IDs can appear in MAX() before",
+          "the inserting transaction completes.",
+          "Mutually exclusive with --lag."
+      })
+  Long toOverride;
+
+  @Option(names = {"--lag"},
+      description = {
+          "Number of trailing rows to withhold from this commit.",
+          "Equivalent to --to (source_total - N). Convenient for scheduled",
+          "scripts where a fixed buffer guards against in-flight transactions",
+          "whose IDs have been allocated but not yet committed.",
+          "Mutually exclusive with --to."
+      })
+  Long lagOverride;
 
   public static void main(String[] args) {
     System.exit(new CommandLine(new commit()).execute(args));
@@ -137,6 +163,35 @@ class commit implements Callable<Integer> {
 
   @Override
   public Integer call() throws Exception {
+    // ── option validation (before any I/O) ─────────────────────────────────
+    try {
+      TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(timezone)));
+    } catch (java.time.zone.ZoneRulesException e) {
+      System.err.println("ERROR: unknown timezone '" + timezone + "'");
+      return 1;
+    }
+    if (toOverride != null && lagOverride != null) {
+      System.err.println("ERROR: --to and --lag are mutually exclusive");
+      return 1;
+    }
+    if (fromOverride != null && fromOverride < 1) {
+      System.err.println("ERROR: --from must be >= 1");
+      return 1;
+    }
+    if (toOverride != null && toOverride < 1) {
+      System.err.println("ERROR: --to must be >= 1");
+      return 1;
+    }
+    if (lagOverride != null && lagOverride < 0) {
+      System.err.println("ERROR: --lag must be >= 0");
+      return 1;
+    }
+    if (fromOverride != null && toOverride != null && fromOverride > toOverride) {
+      System.err.println("ERROR: --from (" + fromOverride + ") must be <= --to (" + toOverride + ")");
+      return 1;
+    }
+
+    // ── network + DB ───────────────────────────────────────────────────────
     URI base = URI.create(chainUrl.getScheme() + "://" + chainUrl.getAuthority());
     String[] parts = chainUrl.getPath().split("/");
     String username = parts[parts.length - 2];
@@ -145,24 +200,19 @@ class commit implements Callable<Integer> {
     ChainClient client = new ChainClient(base, username, chain,
         HttpClient.newHttpClient());
 
-    // 1. chain metadata
     ChainInfo info = client.getInfo().orElseThrow(() ->
         new IllegalArgumentException("Chain not found: " + chainUrl));
 
-    // 2. salt (only if scheme uses salt)
     TableSalt salt = info.saltScheme().hasSalt()
         ? client.getSalts(token)
         : null;
 
-    // 3. SQL config
     SqlConfig sqlCfg = client.getSqlConfig(token);
 
-    // 4. current committed row count
     long committed = client.getState()
         .map(p -> p.hiRowNumber())
         .orElse(0L);
 
-    // override JDBC URL if supplied on command line
     SqlConfig effectiveCfg = jdbcUrlOverride != null
         ? new SqlConfig(
             sqlCfg.byNoQuery(), sqlCfg.rowCountQuery(),
@@ -175,27 +225,39 @@ class commit implements Callable<Integer> {
     if (jdbcPass != null && jdbcPass.length > 0)
       props.setProperty("password", new String(jdbcPass));
 
-    // 5-6. open ledger, hash and commit
     try (Connection conn = effectiveCfg.openConnection(props.isEmpty() ? null : props);
          SqlLedger ledger = salt != null
              ? effectiveCfg.open(conn, info.saltScheme(), salt)
              : effectiveCfg.open(conn, info.saltScheme())) {
 
       long total = ledger.size();
+      long ceiling;
+      String ceilNote;
+      if (toOverride != null) {
+        ceiling  = Math.min(toOverride, total);
+        ceilNote = "  --to: " + ceiling;
+      } else if (lagOverride != null) {
+        ceiling  = Math.max(0, total - lagOverride);
+        ceilNote = "  lag: " + lagOverride + "  (effective --to: " + ceiling + ")";
+      } else {
+        ceiling  = total;
+        ceilNote = "";
+      }
+
       long from = fromOverride != null ? fromOverride
           : (committed > 0 ? committed : 1);
 
-      if (from > total) {
+      if (from > ceiling) {
         System.out.println("Nothing to commit.  " +
-            "Chain: " + committed + " row(s)  Source: " + total + " row(s)");
+            "Chain: " + committed + " row(s)  Source: " + total + " row(s)" + ceilNote);
         return 0;
       }
 
       System.out.println("Chain committed: " + committed +
           "  Source rows: " + total +
-          "  Submitting from row: " + from);
-      while (from <= total) {
-        long to = Math.min(from + batch - 1, total);
+          "  Submitting from row: " + from + " to row: " + ceiling + ceilNote);
+      while (from <= ceiling) {
+        long to = Math.min(from + batch - 1, ceiling);
         var hashes = new ArrayList<String>((int) (to - from + 1));
         for (long rn = from; rn <= to; rn++) {
           hashes.add(HashEncoding.BASE64_32.encode(

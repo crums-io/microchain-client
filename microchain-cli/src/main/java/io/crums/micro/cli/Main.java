@@ -7,9 +7,11 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.sql.Connection;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.TimeZone;
 import java.util.concurrent.Callable;
 
 import io.crums.micro.api.ChainInfo;
@@ -70,6 +72,10 @@ public class Main implements Runnable {
         })
     URI chainUrl;
 
+    // Subcommands handle --help themselves; -V belongs only on the root command.
+    @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+    boolean helpRequested;
+
     URI base() {
       return URI.create(chainUrl.getScheme() + "://" + chainUrl.getAuthority());
     }
@@ -92,17 +98,16 @@ public class Main implements Runnable {
 
   @Command(
       name = "commit",
-      mixinStandardHelpOptions = true,
       description = {
           "Hash new rows from the local database and commit them to the chain.",
           "",
           "Workflow:",
-          "  1. GET /info   → salt scheme",
-          "  2. GET /salts  → table salt (token required)",
-          "  3. GET /sql-config → JDBC queries",
-          "  4. GET /state  → current committed row count N",
-          "  5. Open local SqlLedger, hash rows N+1..M",
-          "  6. POST /commit  → updated row count"
+          "  1. GET /info        → salt scheme",
+          "  2. GET /salts       → table salt (token required)",
+          "  3. GET /sql-config  → JDBC queries",
+          "  4. GET /state       → current committed row count N",
+          "  5. Open local SqlLedger, hash rows N..M  (see --from / --to / --lag)",
+          "  6. POST /commit     → updated row count"
       })
   static class CommitCommand implements Callable<Integer> {
 
@@ -130,6 +135,15 @@ public class Main implements Runnable {
         defaultValue = "1000")
     int batch;
 
+    @Option(names = {"--timezone", "--tz"},
+        description = {
+            "JVM timezone for hashing DATE/TIMESTAMP columns (default: ${DEFAULT-VALUE}).",
+            "Controls how ResultSet.getDate() interprets date values.",
+            "Must match the timezone used when any existing chain hashes were built."
+        },
+        defaultValue = "UTC")
+    String timezone;
+
     @Option(names = {"--from"},
         description = {
             "First row to hash and submit.",
@@ -139,8 +153,58 @@ public class Main implements Runnable {
         })
     Long fromOverride;
 
+    @Option(names = {"--to"},
+        description = {
+            "Last row to include in this commit (inclusive).",
+            "Defaults to the total row count reported by the source ledger.",
+            "Use to exclude rows whose source transactions may not yet have",
+            "committed, since sequence-allocated IDs can appear in MAX() before",
+            "the inserting transaction completes.",
+            "Mutually exclusive with --lag."
+        })
+    Long toOverride;
+
+    @Option(names = {"--lag"},
+        description = {
+            "Number of trailing rows to withhold from this commit.",
+            "Equivalent to --to (source_total - N). Convenient for scheduled",
+            "scripts where a fixed buffer guards against in-flight transactions",
+            "whose IDs have been allocated but not yet committed.",
+            "Mutually exclusive with --to."
+        })
+    Long lagOverride;
+
     @Override
     public Integer call() throws Exception {
+      // ── option validation (before any I/O) ───────────────────────────────────
+      try {
+        TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(timezone)));
+      } catch (java.time.zone.ZoneRulesException e) {
+        System.err.println("ERROR: unknown timezone '" + timezone + "'");
+        return 1;
+      }
+      if (toOverride != null && lagOverride != null) {
+        System.err.println("ERROR: --to and --lag are mutually exclusive");
+        return 1;
+      }
+      if (fromOverride != null && fromOverride < 1) {
+        System.err.println("ERROR: --from must be >= 1");
+        return 1;
+      }
+      if (toOverride != null && toOverride < 1) {
+        System.err.println("ERROR: --to must be >= 1");
+        return 1;
+      }
+      if (lagOverride != null && lagOverride < 0) {
+        System.err.println("ERROR: --lag must be >= 0");
+        return 1;
+      }
+      if (fromOverride != null && toOverride != null && fromOverride > toOverride) {
+        System.err.println("ERROR: --from (" + fromOverride + ") must be <= --to (" + toOverride + ")");
+        return 1;
+      }
+
+      // ── network + DB ─────────────────────────────────────────────────────────
       ChainClient client = newClient(opts);
 
       ChainInfo info = client.getInfo().orElseThrow(() ->
@@ -174,20 +238,33 @@ public class Main implements Runnable {
                : effectiveCfg.open(conn, info.saltScheme())) {
 
         long total = ledger.size();
+        long ceiling;
+        String ceilNote;
+        if (toOverride != null) {
+          ceiling  = Math.min(toOverride, total);
+          ceilNote = "  --to: " + ceiling;
+        } else if (lagOverride != null) {
+          ceiling  = Math.max(0, total - lagOverride);
+          ceilNote = "  lag: " + lagOverride + "  (effective --to: " + ceiling + ")";
+        } else {
+          ceiling  = total;
+          ceilNote = "";
+        }
+
         long from = fromOverride != null ? fromOverride
             : (committed > 0 ? committed : 1);
 
-        if (from > total) {
+        if (from > ceiling) {
           System.out.println("Nothing to commit.  " +
-              "Chain: " + committed + " row(s)  Source: " + total + " row(s)");
+              "Chain: " + committed + " row(s)  Source: " + total + " row(s)" + ceilNote);
           return 0;
         }
 
         System.out.println("Chain committed: " + committed +
             "  Source rows: " + total +
-            "  Submitting from row: " + from);
-        while (from <= total) {
-          long to = Math.min(from + batch - 1, total);
+            "  Submitting from row: " + from + " to row: " + ceiling + ceilNote);
+        while (from <= ceiling) {
+          long to = Math.min(from + batch - 1, ceiling);
           var hashes = new ArrayList<String>((int) (to - from + 1));
           for (long rn = from; rn <= to; rn++) {
             hashes.add(HashEncoding.BASE64_32.encode(
@@ -216,7 +293,6 @@ public class Main implements Runnable {
 
   @Command(
       name = "status",
-      mixinStandardHelpOptions = true,
       description = "Print the current committed row count (GET /state, public).")
   static class StatusCommand implements Callable<Integer> {
 
@@ -241,7 +317,6 @@ public class Main implements Runnable {
 
   @Command(
       name = "info",
-      mixinStandardHelpOptions = true,
       description = "Print chain metadata (GET /info, public).")
   static class InfoCommand implements Callable<Integer> {
 
