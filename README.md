@@ -32,13 +32,64 @@ The commit workflow:
 
 All endpoints are namespaced under `/{user}/{chain}/`:
 
-| Verb | Path | Description |
-|---|---|---|
-| GET | `/info` | Chain metadata: ledger type, title, salt scheme |
-| GET | `/salts` | Salt seeds (secret, requires access token) |
-| GET | `/sql-config` | JDBC queries and optional connection URL |
-| GET | `/state` | Current skip-ledger state (PathPack JSON) — public |
-| POST | `/commit` | Append row hashes — requires Bearer access token |
+| Verb | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/info` | — | Chain metadata: ledger type, title, salt scheme |
+| GET | `/salts` | Bearer | Salt seeds (secret — owner only) |
+| GET | `/sql-config` | Bearer | JDBC queries, optional JDBC URL, timezone, default lag |
+| GET | `/state` | — | Current skip-ledger state (PathPack JSON) |
+| POST | `/commit` | Bearer | Append row hashes, receive updated row count |
+
+### curl examples
+
+Replace `https://micro.crums.io/alice/sales` with your chain URL and
+`$TOKEN` with the Bearer token shown on the chain's manage page.
+
+**GET /info** (public)
+```sh
+curl https://micro.crums.io/alice/sales/info
+```
+
+**GET /state** (public)
+```sh
+curl https://micro.crums.io/alice/sales/state
+```
+
+**GET /sql-config** (token required)
+```sh
+curl -H "Authorization: Bearer $TOKEN" \
+     https://micro.crums.io/alice/sales/sql-config
+```
+
+**GET /salts** (token required)
+```sh
+curl -H "Authorization: Bearer $TOKEN" \
+     https://micro.crums.io/alice/sales/salts
+```
+
+**POST /commit** (token required)
+
+The request body is JSON with a `start_row` (1-based) and an `input_hashes`
+array of Base64-encoded SHA-256 hashes (43 characters each, URL-safe alphabet).
+The server requires `start_row` to be ≤ the current committed count + 1 and
+rejects any hash that conflicts with an already-recorded value.
+
+```sh
+curl -X POST \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "start_row": 42,
+       "input_hashes": [
+         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+         "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+       ]
+     }' \
+     https://micro.crums.io/alice/sales/commit
+```
+
+In practice the hashes are produced by the `mchain commit` command or the
+`commit.java` JBang script; computing them by hand is only useful for testing.
 
 ## Dependencies
 
