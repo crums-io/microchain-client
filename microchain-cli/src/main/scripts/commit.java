@@ -107,12 +107,12 @@ class commit implements Callable<Integer> {
 
   @Option(names = {"--timezone", "--tz"},
       description = {
-          "JVM timezone for hashing DATE/TIMESTAMP columns (default: ${DEFAULT-VALUE}).",
-          "Controls how ResultSet.getDate() interprets date values.",
-          "Must match the timezone used when any existing chain hashes were built."
-      },
-      defaultValue = "UTC")
-  String timezone;
+          "JVM timezone for hashing DATE/TIMESTAMP columns.",
+          "Overrides the server-configured timezone from sql-config.",
+          "Defaults to the server-configured timezone, or UTC if not set.",
+          "Must match the timezone used when existing chain hashes were built."
+      })
+  String timezoneOverride;
 
   @Option(names = {"--from"},
       description = {
@@ -164,12 +164,6 @@ class commit implements Callable<Integer> {
   @Override
   public Integer call() throws Exception {
     // ── option validation (before any I/O) ─────────────────────────────────
-    try {
-      TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(timezone)));
-    } catch (java.time.zone.ZoneRulesException e) {
-      System.err.println("ERROR: unknown timezone '" + timezone + "'");
-      return 1;
-    }
     if (toOverride != null && lagOverride != null) {
       System.err.println("ERROR: --to and --lag are mutually exclusive");
       return 1;
@@ -213,10 +207,22 @@ class commit implements Callable<Integer> {
         .map(p -> p.hiRowNumber())
         .orElse(0L);
 
+    // resolve + apply timezone: CLI > server > "UTC"
+    String effectiveTimezone = timezoneOverride != null ? timezoneOverride
+        : sqlCfg.timezone().orElse("UTC");
+    try {
+      TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(effectiveTimezone)));
+    } catch (java.time.zone.ZoneRulesException e) {
+      System.err.println("ERROR: unknown timezone '" + effectiveTimezone + "'");
+      return 1;
+    }
+
+    // override JDBC URL if supplied on command line
     SqlConfig effectiveCfg = jdbcUrlOverride != null
         ? new SqlConfig(
             sqlCfg.byNoQuery(), sqlCfg.rowCountQuery(),
-            Optional.of(jdbcUrlOverride), sqlCfg.jdbcDriverClass())
+            Optional.of(jdbcUrlOverride), sqlCfg.jdbcDriverClass(),
+            sqlCfg.timezone(), sqlCfg.defaultLag())
         : sqlCfg;
 
     Properties props = new Properties();
@@ -239,6 +245,10 @@ class commit implements Callable<Integer> {
       } else if (lagOverride != null) {
         ceiling  = Math.max(0, total - lagOverride);
         ceilNote = "  lag: " + lagOverride + "  (effective --to: " + ceiling + ")";
+      } else if (sqlCfg.defaultLag().isPresent()) {
+        long serverLag = sqlCfg.defaultLag().get();
+        ceiling  = Math.max(0, total - serverLag);
+        ceilNote = "  lag: " + serverLag + "  (server default, effective --to: " + ceiling + ")";
       } else {
         ceiling  = total;
         ceilNote = "";

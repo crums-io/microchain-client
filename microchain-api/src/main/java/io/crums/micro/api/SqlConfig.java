@@ -44,12 +44,16 @@ import io.crums.util.json.simple.JSONObject;
  * @param rowCountQuery   parameter-free SQL SELECT returning the maximum available row number
  * @param jdbcUrl         optional JDBC connection URL
  * @param jdbcDriverClass optional fully-qualified JDBC driver class name
+ * @param timezone        optional IANA timezone for DATE/TIMESTAMP hashing (e.g. "UTC", "America/New_York")
+ * @param defaultLag      optional default number of trailing rows to withhold from each commit
  */
 public record SqlConfig(
     String byNoQuery,
     String rowCountQuery,
     Optional<String> jdbcUrl,
-    Optional<String> jdbcDriverClass) {
+    Optional<String> jdbcDriverClass,
+    Optional<String> timezone,
+    Optional<Long>   defaultLag) {
 
   public static final Parser PARSER = new Parser();
 
@@ -153,8 +157,10 @@ public record SqlConfig(
     public JSONObject injectEntity(SqlConfig cfg, JSONObject jObj) {
       jObj.put(BY_NO_QUERY_KEY,     cfg.byNoQuery());
       jObj.put(ROW_COUNT_QUERY_KEY, cfg.rowCountQuery());
-      cfg.jdbcUrl().ifPresent(u -> jObj.put(JDBC_URL_KEY, u));
+      cfg.jdbcUrl().ifPresent(u       -> jObj.put(JDBC_URL_KEY,          u));
       cfg.jdbcDriverClass().ifPresent(d -> jObj.put(JDBC_DRIVER_CLASS_KEY, d));
+      cfg.timezone().ifPresent(tz     -> jObj.put(TIMEZONE_KEY,          tz));
+      cfg.defaultLag().ifPresent(l    -> jObj.put(DEFAULT_LAG_KEY,       l));
       return jObj;
     }
 
@@ -162,12 +168,18 @@ public record SqlConfig(
     public SqlConfig toEntity(JSONObject jObj) throws JsonParsingException {
       var byNoQuery     = JsonUtils.getString(jObj, BY_NO_QUERY_KEY,     true);
       var rowCountQuery = JsonUtils.getString(jObj, ROW_COUNT_QUERY_KEY, true);
-      var jdbcUrl       = Optional.ofNullable(
-          JsonUtils.getString(jObj, JDBC_URL_KEY, false));
+      var jdbcUrl         = Optional.ofNullable(
+          JsonUtils.getString(jObj, JDBC_URL_KEY,          false));
       var jdbcDriverClass = Optional.ofNullable(
           JsonUtils.getString(jObj, JDBC_DRIVER_CLASS_KEY, false));
+      var timezone        = Optional.ofNullable(
+          JsonUtils.getString(jObj, TIMEZONE_KEY,          false));
+      Optional<Long> defaultLag = Optional.empty();
+      Object lagVal = jObj.get(DEFAULT_LAG_KEY);
+      if (lagVal instanceof Number n) defaultLag = Optional.of(n.longValue());
       try {
-        return new SqlConfig(byNoQuery, rowCountQuery, jdbcUrl, jdbcDriverClass);
+        return new SqlConfig(byNoQuery, rowCountQuery, jdbcUrl, jdbcDriverClass,
+            timezone, defaultLag);
       } catch (Exception x) {
         throw new JsonParsingException(x);
       }

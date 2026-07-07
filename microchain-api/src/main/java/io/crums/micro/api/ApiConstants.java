@@ -14,6 +14,8 @@ public class ApiConstants {
   public static final String ROW_COUNT_QUERY_KEY   = "row_count_query";
   public static final String JDBC_URL_KEY          = "jdbc_url";
   public static final String JDBC_DRIVER_CLASS_KEY = "jdbc_driver_class";
+  public static final String TIMEZONE_KEY          = "timezone";
+  public static final String DEFAULT_LAG_KEY       = "default_lag";
 
   // /{user}/{chain}/info
   public static final String LEDGER_TYPE_KEY  = "ledger_type";

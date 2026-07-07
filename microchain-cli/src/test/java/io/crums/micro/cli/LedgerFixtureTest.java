@@ -129,6 +129,7 @@ class LedgerFixtureTest {
       if (!sql.isEmpty())
         statements.add(sql);
     }
-    return new SqlConfig(statements.get(1), statements.get(0), Optional.empty(), Optional.empty());
+    return new SqlConfig(statements.get(1), statements.get(0),
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
   }
 }
