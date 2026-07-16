@@ -43,8 +43,8 @@ import io.crums.util.json.simple.parser.ParseException;
  *   <li>{@link #getInfo()} — {@code GET /info}</li>
  *   <li>{@link #getSalts(String)} — {@code GET /salts}</li>
  *   <li>{@link #getSqlConfig(String)} — {@code GET /sql-config}</li>
- *   <li>{@link #getState()} — {@code GET /state}</li>
- *   <li>{@link #getState(List, boolean, boolean)} — {@code GET /state} with parameters</li>
+ *   <li>{@link #getState()} — {@code GET /state?rows=last}</li>
+ *   <li>{@link #getState(List, boolean, boolean)} — {@code GET /state?rows=...} with explicit rows</li>
  *   <li>{@link #commit(String, CommitRequest)} — {@code POST /commit}</li>
  * </ul>
  */
@@ -146,42 +146,50 @@ public class ChainClient {
   // ── /state ────────────────────────────────────────────────────────────────────
 
   /**
-   * {@code GET /{user}/{chain}/state} with no query parameters.
+   * {@code GET /{user}/{chain}/state?rows=last} — singleton path for the
+   * latest committed row.
    *
-   * <p>The server defaults to a commitment path that includes row 1 and the
-   * latest committed row (equivalent to
-   * {@code rows=1&latest=true&compress=1}).</p>
+   * <p>Used by the commit workflow to read the current committed row count and
+   * by the {@code status} subcommand.</p>
    *
-   * @return the current state path, or empty if the chain has no committed rows
+   * @return singleton path (last committed row), or empty if the chain has no
+   *         committed rows
    * @throws IOException          on HTTP failure
    * @throws InterruptedException if the HTTP call is interrupted
    */
   public Optional<Path> getState() throws IOException, InterruptedException {
-    return fetchState(endpointUrl("state"));
+    return fetchState(endpointUrl("state") + "?rows=last");
   }
 
   /**
    * {@code GET /{user}/{chain}/state} with explicit row targets.
    *
    * <p>The server builds the shortest commitment path that links all of the
-   * requested rows; if {@code plusLatest} is {@code true}, the latest
-   * committed row is also included.  The server sorts and de-duplicates
-   * {@code targetRows}, so the caller need not pre-sort them.</p>
+   * requested rows.  Pass {@code includeLast=true} to also include the latest
+   * committed row (equivalent to appending {@code last} to the {@code rows}
+   * parameter).  The server sorts and de-duplicates the list, so callers need
+   * not pre-sort.</p>
    *
-   * @param targetRows  specific row numbers to include in the path; if empty,
-   *                    the server defaults to row 1
-   * @param plusLatest  if {@code true}, also include the latest committed row
-   * @param compress    if {@code true}, the server returns a condensed path
-   *                    (smaller, but hides intermediate row hashes); {@code false}
-   *                    returns the full path with every row hash present
+   * @param targetRows  specific row numbers to include (each &ge; 1);
+   *                    may be empty when {@code includeLast} is {@code true}
+   * @param includeLast if {@code true}, the latest committed row is always
+   *                    included (appends {@code last} to the query)
+   * @param compress    if {@code true}, the server returns a compressed
+   *                    (not necessarily condensed) path; if {@code false},
+   *                    then the returned path is <em>not condensed</em>
    * @return the requested state path, or empty if the chain has no committed rows
-   * @throws IllegalArgumentException if any row number is less than 1
+   * @throws IllegalArgumentException if any row number is less than 1, or both
+   *                                  {@code targetRows} is empty and
+   *                                  {@code includeLast} is {@code false}
    * @throws IOException              on HTTP failure
    * @throws InterruptedException     if the HTTP call is interrupted
+   * 
+   * @see Path#isCompressed()
+   * @see Path#isCondensed()
    */
-  public Optional<Path> getState(List<Long> targetRows, boolean plusLatest, boolean compress)
+  public Optional<Path> getState(List<Long> targetRows, boolean includeLast, boolean compress)
       throws IOException, InterruptedException {
-    return fetchState(endpointUrl("state") + "?" + stateQuery(targetRows, plusLatest, compress));
+    return fetchState(endpointUrl("state") + "?" + stateQuery(targetRows, includeLast, compress));
   }
 
 
@@ -269,21 +277,22 @@ public class ChainClient {
     return Optional.of(STATE_PARSER.toEntity(resp.body()).path());
   }
 
-  /** Builds the query string for the parameterised {@code /state} call. */
-  private static String stateQuery(List<Long> targetRows, boolean plusLatest, boolean compress) {
-    var sb = new StringBuilder();
-    if (!targetRows.isEmpty()) {
-      sb.append("rows=");
-      for (int i = 0; i < targetRows.size(); i++) {
-        if (i > 0) sb.append(',');
-        long rn = targetRows.get(i);
-        if (rn < 1)
-          throw new IllegalArgumentException("row number < 1: " + rn);
-        sb.append(rn);
-      }
-      sb.append('&');
+  /** Builds the {@code rows=...&compress=...} query string for a parameterised {@code /state} call. */
+  private static String stateQuery(List<Long> targetRows, boolean includeLast, boolean compress) {
+    if (targetRows.isEmpty() && !includeLast)
+      throw new IllegalArgumentException("must specify at least one row or includeLast=true");
+    var sb = new StringBuilder("rows=");
+    for (int i = 0; i < targetRows.size(); i++) {
+      if (i > 0) sb.append(',');
+      long rn = targetRows.get(i);
+      if (rn < 1)
+        throw new IllegalArgumentException("row number < 1: " + rn);
+      sb.append(rn);
     }
-    sb.append("latest=").append(plusLatest);
+    if (includeLast) {
+      if (!targetRows.isEmpty()) sb.append(',');
+      sb.append("last");
+    }
     sb.append("&compress=").append(compress ? 1 : 0);
     return sb.toString();
   }
