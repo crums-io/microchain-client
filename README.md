@@ -28,6 +28,170 @@ The commit workflow:
 | `microchain-http` | `io.crums:microchain-http` | `java.net.http` client implementing `SkipLedger` over the REST API |
 | `microchain-cli` | `io.crums:microchain-cli` | `picocli` command-line tool that drives the commit workflow |
 
+## Command-line tools
+
+Two tools drive the commit workflow:
+
+| Tool | How to run | Best for |
+|---|---|---|
+| `mchain` | `mchain commit <chain-url> …` | Recurring scheduled commits, full CLI |
+| `commit.java` | `jbang run commit.java <chain-url> …` | Quick one-off use, no install required |
+
+Both tools share the same options.  Run with `--help` for the full list.
+
+### Core options
+
+```
+<chain-url>              Full chain URL: https://micro.crums.io/{user}/{chain}
+--token, -t <token>      Bearer access token (may be omitted when --local-config supplies it)
+--local-config, -c <file>  Local JSON config file (see below)
+--jdbc-url <url>         JDBC connection URL (overrides server config and local-config value)
+--jdbc-user <user>       JDBC username
+--jdbc-pass [<pass>]     JDBC password (omit value to be prompted interactively)
+--timezone, --tz <tz>    IANA timezone for hashing DATE/TIMESTAMP columns
+--from <n>               First row to submit (default: current chain length)
+--to <n>                 Last row to submit, inclusive (mutually exclusive with --lag)
+--lag <n>                Trailing rows to withhold (mutually exclusive with --to)
+--batch, -b <n>          Max rows per commit request (default: 1000)
+```
+
+### Local config file (`--local-config`)
+
+The `--local-config <file>` option reads chain configuration from a local JSON file
+instead of (or in addition to) fetching it from the server.  There are two main
+reasons to use it:
+
+**1. Dry-run / pre-registration.**  You can configure and test the commit workflow
+entirely locally — writing SQL queries, verifying the JDBC connection, and checking
+that row hashes are computed correctly — before the chain exists on the server at all.
+Once the results look right, register the chain on the website and start committing
+for real.
+
+**2. Keeping sensitive values out of shell history.**  Bearer tokens, salt seeds, and
+JDBC connection strings passed as command-line arguments appear in shell history and
+process listings.  Storing them in a file (with `chmod 600`) avoids that exposure.
+
+#### File format
+
+A JSON object combining the fields from `GET /sql-config` and `GET /salts`, plus an
+`access_token` field.  All fields are optional — absent ones are fetched from the
+server as normal.
+
+**Fully configured — unsalted chain:**
+
+```json
+{
+  "access_token":      "mcw_...",
+  "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
+  "row_count_query":   "SELECT COUNT(*) FROM sales",
+  "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
+  "jdbc_driver_class": "org.postgresql.Driver",
+  "timezone":          "America/New_York",
+  "default_lag":       5
+}
+```
+
+**Fully configured — salted chain** (adds the `salts` array; the `seed` is the
+32-byte secret encoded as a 43-character Base64_32 string):
+
+```json
+{
+  "access_token":      "mcw_...",
+  "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
+  "row_count_query":   "SELECT COUNT(*) FROM sales",
+  "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
+  "jdbc_driver_class": "org.postgresql.Driver",
+  "timezone":          "America/New_York",
+  "default_lag":       5,
+  "salts": [
+    { "seedStart": 1, "seed": "<43-char Base64_32>" }
+  ]
+}
+```
+
+A chain with multiple salt epochs has one entry per epoch, ordered by `seedStart`.
+Each epoch covers rows from its `seedStart` up to (but not including) the next
+epoch's `seedStart`.
+
+Protect the file:
+
+```sh
+chmod 600 ~/.config/crums/sales.json
+```
+
+#### Precedence
+
+| Priority | Source |
+|---|---|
+| 1 (highest) | CLI flag (`--token`, `--jdbc-url`, `--timezone`, `--lag`, …) |
+| 2 | Local config file |
+| 3 | Server response (`GET /sql-config`, `GET /salts`) |
+
+When the file supplies `by_no_query` + `row_count_query`, the `GET /sql-config` call
+is skipped entirely.  When the file supplies a `salts` array, `GET /salts` is skipped.
+
+#### Examples
+
+```sh
+# Dry run: no chain on the server yet — all config from a local file
+mchain commit https://micro.crums.io/alice/sales \
+    --local-config ~/.config/crums/sales.json
+
+# JBang equivalent:
+jbang run --deps org.postgresql:postgresql:42.7.3 commit.java \
+    https://micro.crums.io/alice/sales \
+    --local-config ~/.config/crums/sales.json
+
+# Override the JDBC URL at run time (e.g. to test against a staging DB):
+mchain commit https://micro.crums.io/alice/sales \
+    --local-config ~/.config/crums/sales.json \
+    --jdbc-url jdbc:postgresql://staging-db:5432/mydb
+```
+
+### Building a local config file incrementally (`mchain config set`)
+
+`mchain config <file> set <options>` creates or updates a local config file one
+field at a time.  This is especially useful during the **dry-run / pre-registration
+phase**: you can configure and validate the JDBC connection and SQL queries before
+the chain exists on the server.
+
+Options mirror the commit command flags; any option not supplied is left unchanged.
+
+```sh
+# 1. Set the JDBC connection
+mchain config ~/.config/crums/sales.json set \
+    --jdbc-url jdbc:postgresql://db.example.com:5432/mydb
+
+# 2. Add the SQL queries
+mchain config ~/.config/crums/sales.json set \
+    --by-no-query "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?"
+mchain config ~/.config/crums/sales.json set \
+    --row-count-query "SELECT COUNT(*) FROM sales"
+
+# 3. Auto-generate a salt seed (prints the generated Base64_32 value)
+mchain config ~/.config/crums/sales.json set --salt-seed
+
+# 4. Or supply a specific seed
+mchain config ~/.config/crums/sales.json set --salt-seed <43-char Base64_32>
+
+# 5. Store the bearer token (after registering the chain on the website)
+mchain config ~/.config/crums/sales.json set --token mcw_...
+
+# 6. Protect the file
+chmod 600 ~/.config/crums/sales.json
+
+# 7. Commit — the chain URL still identifies which chain on the server
+mchain commit https://micro.crums.io/alice/sales \
+    --local-config ~/.config/crums/sales.json
+```
+
+`--salt-seed` without a value generates a cryptographically random 32-byte seed
+using `SecureRandom` and prints it to stdout.  It sets (or replaces) the single
+salt epoch starting at row 1.  The seed is secret — back it up securely before
+registering the chain, as it is required to reproduce any row's input hash.
+
+---
+
 ## REST API reference
 
 All chain endpoints are namespaced under `/{user}/{chain}/`.  In the examples

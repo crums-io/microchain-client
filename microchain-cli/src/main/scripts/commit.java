@@ -12,11 +12,11 @@
 //
 // Usage:
 //   jbang run --deps <group:artifact:version> microchain-cli/src/main/scripts/commit.java \
-//       <chain-url> --token <t> \
+//       <chain-url> [--token <t>] [--local-config <file>] \
 //       [--jdbc-url <url>] [--jdbc-user <user>] [--jdbc-pass <pass>] [--batch <n>] \
 //       [--timezone <tz>] [--from <n>] [--to <n>] [--lag <n>]
 //
-// Example:
+// Example (token on command line):
 //   jbang run --deps org.postgresql:postgresql:42.7.3 \
 //       microchain-cli/src/main/scripts/commit.java \
 //       http://localhost:8081/alice/sales \
@@ -24,6 +24,12 @@
 //       --jdbc-url jdbc:postgresql://localhost:5432/mydb \
 //       --jdbc-user alice \
 //       --jdbc-pass secret
+//
+// Example (all sensitive values in a local config file):
+//   jbang run --deps org.postgresql:postgresql:42.7.3 \
+//       microchain-cli/src/main/scripts/commit.java \
+//       http://localhost:8081/alice/sales \
+//       --local-config ~/.config/crums/sales.json
 
 //REPOS mavenCentral,mavenLocal
 //DEPS io.crums:microchain-http:0.1.0-SNAPSHOT
@@ -31,25 +37,28 @@
 
 import io.crums.micro.api.ChainInfo;
 import io.crums.micro.api.CommitRequest;
+import io.crums.micro.api.LocalConfig;
 import io.crums.micro.api.SqlConfig;
 import io.crums.micro.http.ChainClient;
 import io.crums.sldg.HashConflictException;
 import io.crums.sldg.json.HashEncoding;
 import io.crums.sldg.salt.TableSalt;
 import io.crums.sldg.src.sql.SqlLedger;
+import io.crums.util.json.JsonParsingException;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IVersionProvider;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
+import java.io.File;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.sql.Connection;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
@@ -83,12 +92,25 @@ class commit implements Callable<Integer> {
       })
   URI chainUrl;
 
-  @Option(names = {"--token", "-t"}, required = true,
-      description = "Bearer access token")
+  @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
+      description = {
+          "JSON file supplying local config: access_token, sql-config fields,",
+          "and/or salts array. Fields present here are used instead of fetching",
+          "from the server. CLI flags (--token, --jdbc-url, etc.) take precedence.",
+          "Recommended for sensitive values (token, salt seeds) to keep them out",
+          "of shell history."
+      })
+  File localConfigFile;
+
+  @Option(names = {"--token", "-t"},
+      description = {
+          "Bearer access token.",
+          "May be omitted when --local-config provides an 'access_token' field."
+      })
   String token;
 
   @Option(names = {"--jdbc-url"},
-      description = "JDBC URL (overrides value in server sql-config)")
+      description = "JDBC URL (overrides server sql-config and --local-config value)")
   String jdbcUrlOverride;
 
   @Option(names = {"--jdbc-user"},
@@ -185,6 +207,24 @@ class commit implements Callable<Integer> {
       return 1;
     }
 
+    // ── load local config (if provided) ────────────────────────────────────
+    LocalConfig localCfg = LocalConfig.EMPTY;
+    if (localConfigFile != null) {
+      try {
+        localCfg = LocalConfig.PARSER.toEntity(localConfigFile);
+      } catch (JsonParsingException | UncheckedIOException e) {
+        System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
+        return 1;
+      }
+    }
+
+    // CLI --token wins; fall back to file's access_token
+    String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
+    if (effectiveToken == null) {
+      System.err.println("ERROR: bearer token required; use --token <t> or add 'access_token' to --local-config file");
+      return 1;
+    }
+
     // ── network + DB ───────────────────────────────────────────────────────
     URI base = URI.create(chainUrl.getScheme() + "://" + chainUrl.getAuthority());
     String[] parts = chainUrl.getPath().split("/");
@@ -197,17 +237,23 @@ class commit implements Callable<Integer> {
     ChainInfo info = client.getInfo().orElseThrow(() ->
         new IllegalArgumentException("Chain not found: " + chainUrl));
 
-    TableSalt salt = info.saltScheme().hasSalt()
-        ? client.getSalts(token)
-        : null;
+    // salt: local config wins over server call
+    TableSalt salt = null;
+    if (info.saltScheme().hasSalt()) {
+      var localSalt = localCfg.tableSalt();
+      salt = localSalt.isPresent() ? localSalt.get() : client.getSalts(effectiveToken);
+    }
 
-    SqlConfig sqlCfg = client.getSqlConfig(token);
+    // sql-config: local config wins over server call; CLI flags applied on top
+    SqlConfig sqlCfg = localCfg.sqlConfig().isPresent()
+        ? localCfg.sqlConfig().get()
+        : client.getSqlConfig(effectiveToken);
 
     long committed = client.getState()
         .map(p -> p.hiRowNumber())
         .orElse(0L);
 
-    // resolve + apply timezone: CLI > server > "UTC"
+    // resolve + apply timezone: CLI > local-config/server > "UTC"
     String effectiveTimezone = timezoneOverride != null ? timezoneOverride
         : sqlCfg.timezone().orElse("UTC");
     try {
@@ -217,12 +263,8 @@ class commit implements Callable<Integer> {
       return 1;
     }
 
-    // override JDBC URL if supplied on command line
     SqlConfig effectiveCfg = jdbcUrlOverride != null
-        ? new SqlConfig(
-            sqlCfg.byNoQuery(), sqlCfg.rowCountQuery(),
-            Optional.of(jdbcUrlOverride), sqlCfg.jdbcDriverClass(),
-            sqlCfg.timezone(), sqlCfg.defaultLag())
+        ? sqlCfg.withJdbcUrl(jdbcUrlOverride)
         : sqlCfg;
 
     Properties props = new Properties();
@@ -273,7 +315,7 @@ class commit implements Callable<Integer> {
           hashes.add(HashEncoding.BASE64_32.encode(
               ledger.getSourceRow(rn).hash()));
         }
-        var resp = client.commit(token, new CommitRequest(from, hashes));
+        var resp = client.commit(effectiveToken, new CommitRequest(from, hashes));
         System.out.println("  Committed rows " + from + "–" + to +
             "  (chain total: " + resp.rowCount() + ")");
         from = to + 1;

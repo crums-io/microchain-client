@@ -6,7 +6,6 @@ package io.crums.micro.api;
 import static io.crums.micro.api.ApiConstants.*;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Optional;
 import java.util.Properties;
@@ -23,12 +22,11 @@ import io.crums.util.json.simple.JSONObject;
  * SQL ledger configuration returned by {@code GET /{user}/{chain}/sql-config}.
  *
  * <p>Maps to {@code ConfigResponse} in {@code SqlLedgerConfigResource}.
- * The JDBC URL and driver class are optional: if not recorded server-side,
- * they must be supplied by the caller.</p>
+ * The JDBC connection details are grouped in an optional {@link DbConfig};
+ * if not recorded server-side they must be supplied locally (via
+ * {@link LocalConfig} or the {@code --jdbc-url} flag).</p>
  *
  * <h2>Opening an SqlLedger</h2>
- * <p>Given responses from the three read-only chain endpoints, a client-side
- * {@link SqlLedger} can be opened in a few lines:</p>
  * <pre>{@code
  * SqlConfig  cfg    = SqlConfig.PARSER.toEntity(sqlConfigJson);
  * SaltScheme scheme = ChainInfo.PARSER.toEntity(infoJson).saltScheme();
@@ -40,20 +38,18 @@ import io.crums.util.json.simple.JSONObject;
  * }
  * }</pre>
  *
- * @param byNoQuery       parameterised SQL SELECT returning one row by its 1-based row number
- * @param rowCountQuery   parameter-free SQL SELECT returning the maximum available row number
- * @param jdbcUrl         optional JDBC connection URL
- * @param jdbcDriverClass optional fully-qualified JDBC driver class name
- * @param timezone        optional IANA timezone for DATE/TIMESTAMP hashing (e.g. "UTC", "America/New_York")
- * @param defaultLag      optional default number of trailing rows to withhold from each commit
+ * @param byNoQuery     parameterised SQL SELECT returning one row by its 1-based row number
+ * @param rowCountQuery parameter-free SQL SELECT returning the current row count
+ * @param dbConfig      optional JDBC connection parameters ({@link DbConfig})
+ * @param timezone      optional IANA timezone for DATE/TIMESTAMP hashing
+ * @param defaultLag    optional default number of trailing rows to withhold per commit
  */
 public record SqlConfig(
-    String byNoQuery,
-    String rowCountQuery,
-    Optional<String> jdbcUrl,
-    Optional<String> jdbcDriverClass,
-    Optional<String> timezone,
-    Optional<Long>   defaultLag) {
+    String             byNoQuery,
+    String             rowCountQuery,
+    Optional<DbConfig> dbConfig,
+    Optional<String>   timezone,
+    Optional<Long>     defaultLag) {
 
   public static final Parser PARSER = new Parser();
 
@@ -67,52 +63,35 @@ public record SqlConfig(
   }
 
 
+  // ── Convenience delegation to DbConfig ───────────────────────────────────
+
+  public Optional<String> jdbcUrl() {
+    return dbConfig.flatMap(DbConfig::jdbcUrl);
+  }
+
+  public Optional<String> jdbcDriverClass() {
+    return dbConfig.flatMap(DbConfig::jdbcDriverClass);
+  }
+
+
   // ── Connection factory ────────────────────────────────────────────────────
 
-  /**
-   * Opens a read-only JDBC connection using {@link #jdbcUrl()} and, if
-   * present, {@link #jdbcDriverClass()}.
-   *
-   * @throws IllegalStateException if {@code jdbcUrl} is not configured
-   * @throws SQLException          on connection failure
-   */
+  /** Opens a JDBC connection; equivalent to {@code openConnection(null)}. */
   public Connection openConnection() throws SQLException {
     return openConnection(null);
   }
 
   /**
-   * Opens a read-only JDBC connection, passing {@code info} to the driver.
+   * Opens a JDBC connection via {@link DbConfig#openConnection(Properties)}.
    *
-   * <p>Use this overload to supply credentials or other driver-specific
-   * properties (typically {@code user} and {@code password} keys in the
-   * {@code Properties} map). Pass {@code null} when no extra properties
-   * are needed.</p>
-   *
-   * <p>The driver class is loaded only when {@link #jdbcDriverClass()} is
-   * present; many modern drivers self-register via {@link java.util.ServiceLoader}
-   * and do not require explicit loading.</p>
-   *
-   * @param info connection properties, or {@code null} for none
-   * @throws IllegalStateException if {@code jdbcUrl} is not configured
-   * @throws SQLException          if the driver class cannot be loaded, or
-   *                               the connection cannot be established
+   * @param info connection properties (e.g. {@code user}, {@code password}), or {@code null}
+   * @throws IllegalStateException if no {@link DbConfig} is configured
+   * @throws SQLException          on connection failure
    */
   public Connection openConnection(Properties info) throws SQLException {
-    String url = jdbcUrl.orElseThrow(
-        () -> new IllegalStateException("jdbcUrl not configured in SqlConfig"));
-    if (jdbcDriverClass.isPresent()) {
-      try {
-        Class.forName(jdbcDriverClass.get());
-      } catch (ClassNotFoundException e) {
-        throw new SQLException(
-            "JDBC driver class not found: " + jdbcDriverClass.get(), e);
-      }
-    }
-    Connection conn = (info == null || info.isEmpty())
-        ? DriverManager.getConnection(url)
-        : DriverManager.getConnection(url, info);
-    conn.setReadOnly(true);
-    return conn;
+    return dbConfig.orElseThrow(
+        () -> new IllegalStateException("No database connection configured in SqlConfig"))
+        .openConnection(info);
   }
 
 
@@ -121,12 +100,10 @@ public record SqlConfig(
   /**
    * Opens a salted {@link SqlLedger} on the given connection.
    *
-   * @param connection  open JDBC connection (read-only recommended)
-   * @param saltScheme  the chain's salt scheme, from {@link ChainInfo#saltScheme()}
-   * @param shaker      the chain's table salt, from
-   *                    {@link io.crums.sldg.src.json.TableSaltReader#READER};
-   *                    may be {@code null} when {@code !saltScheme.hasSalt()}
-   * @throws SQLException on SQL preparation error
+   * @param connection open JDBC connection (read-only recommended)
+   * @param saltScheme the chain's salt scheme, from {@link ChainInfo#saltScheme()}
+   * @param shaker     the chain's table salt; may be {@code null} when
+   *                   {@code !saltScheme.hasSalt()}
    */
   public SqlLedger open(
       Connection connection, SaltScheme saltScheme, TableSalt shaker)
@@ -134,18 +111,42 @@ public record SqlConfig(
     return SqlLedger.open(connection, rowCountQuery(), byNoQuery(), saltScheme, shaker);
   }
 
-  /**
-   * Opens an unsalted {@link SqlLedger} on the given connection.
-   *
-   * <p>Convenience for chains where {@code saltScheme.hasSalt()} is {@code false}.</p>
-   *
-   * @param connection  open JDBC connection (read-only recommended)
-   * @param saltScheme  the chain's salt scheme; must satisfy {@code !saltScheme.hasSalt()}
-   * @throws SQLException on SQL preparation error
-   */
-  public SqlLedger open(Connection connection, SaltScheme saltScheme)
-      throws SQLException {
+  /** Opens an unsalted {@link SqlLedger}; convenience for {@code !saltScheme.hasSalt()}. */
+  public SqlLedger open(Connection connection, SaltScheme saltScheme) throws SQLException {
     return open(connection, saltScheme, null);
+  }
+
+
+  // ── Wither methods ────────────────────────────────────────────────────────
+
+  public SqlConfig withByNoQuery(String q) {
+    return new SqlConfig(q, rowCountQuery, dbConfig, timezone, defaultLag);
+  }
+
+  public SqlConfig withRowCountQuery(String q) {
+    return new SqlConfig(byNoQuery, q, dbConfig, timezone, defaultLag);
+  }
+
+  public SqlConfig withDbConfig(DbConfig db) {
+    return new SqlConfig(byNoQuery, rowCountQuery, Optional.of(db), timezone, defaultLag);
+  }
+
+  public SqlConfig withJdbcUrl(String url) {
+    DbConfig db = dbConfig.orElse(DbConfig.EMPTY).withJdbcUrl(url);
+    return new SqlConfig(byNoQuery, rowCountQuery, Optional.of(db), timezone, defaultLag);
+  }
+
+  public SqlConfig withJdbcDriverClass(String cls) {
+    DbConfig db = dbConfig.orElse(DbConfig.EMPTY).withJdbcDriverClass(cls);
+    return new SqlConfig(byNoQuery, rowCountQuery, Optional.of(db), timezone, defaultLag);
+  }
+
+  public SqlConfig withTimezone(String tz) {
+    return new SqlConfig(byNoQuery, rowCountQuery, dbConfig, Optional.of(tz), defaultLag);
+  }
+
+  public SqlConfig withDefaultLag(long lag) {
+    return new SqlConfig(byNoQuery, rowCountQuery, dbConfig, timezone, Optional.of(lag));
   }
 
 
@@ -157,10 +158,9 @@ public record SqlConfig(
     public JSONObject injectEntity(SqlConfig cfg, JSONObject jObj) {
       jObj.put(BY_NO_QUERY_KEY,     cfg.byNoQuery());
       jObj.put(ROW_COUNT_QUERY_KEY, cfg.rowCountQuery());
-      cfg.jdbcUrl().ifPresent(u       -> jObj.put(JDBC_URL_KEY,          u));
-      cfg.jdbcDriverClass().ifPresent(d -> jObj.put(JDBC_DRIVER_CLASS_KEY, d));
-      cfg.timezone().ifPresent(tz     -> jObj.put(TIMEZONE_KEY,          tz));
-      cfg.defaultLag().ifPresent(l    -> jObj.put(DEFAULT_LAG_KEY,       l));
+      cfg.dbConfig().ifPresent(db -> DbConfig.PARSER.injectEntity(db, jObj));
+      cfg.timezone().ifPresent(tz  -> jObj.put(TIMEZONE_KEY,    tz));
+      cfg.defaultLag().ifPresent(l -> jObj.put(DEFAULT_LAG_KEY, l));
       return jObj;
     }
 
@@ -168,18 +168,15 @@ public record SqlConfig(
     public SqlConfig toEntity(JSONObject jObj) throws JsonParsingException {
       var byNoQuery     = JsonUtils.getString(jObj, BY_NO_QUERY_KEY,     true);
       var rowCountQuery = JsonUtils.getString(jObj, ROW_COUNT_QUERY_KEY, true);
-      var jdbcUrl         = Optional.ofNullable(
-          JsonUtils.getString(jObj, JDBC_URL_KEY,          false));
-      var jdbcDriverClass = Optional.ofNullable(
-          JsonUtils.getString(jObj, JDBC_DRIVER_CLASS_KEY, false));
-      var timezone        = Optional.ofNullable(
-          JsonUtils.getString(jObj, TIMEZONE_KEY,          false));
+      DbConfig db = DbConfig.PARSER.toEntity(jObj);
+      Optional<DbConfig> dbConfig = (db.jdbcUrl().isPresent() || db.jdbcDriverClass().isPresent())
+          ? Optional.of(db) : Optional.empty();
+      var timezone   = Optional.ofNullable(JsonUtils.getString(jObj, TIMEZONE_KEY, false));
       Optional<Long> defaultLag = Optional.empty();
       Object lagVal = jObj.get(DEFAULT_LAG_KEY);
       if (lagVal instanceof Number n) defaultLag = Optional.of(n.longValue());
       try {
-        return new SqlConfig(byNoQuery, rowCountQuery, jdbcUrl, jdbcDriverClass,
-            timezone, defaultLag);
+        return new SqlConfig(byNoQuery, rowCountQuery, dbConfig, timezone, defaultLag);
       } catch (Exception x) {
         throw new JsonParsingException(x);
       }

@@ -36,5 +36,9 @@ public class ApiConstants {
   public static final String INPUT_HASHES_KEY = "input_hashes";
   public static final String ROW_COUNT_KEY    = "row_count";
 
+  // local config file
+  public static final String ACCESS_TOKEN_KEY = "access_token";
+  public static final String SALTS_KEY        = "salts";
+
   private ApiConstants() { }
 }
