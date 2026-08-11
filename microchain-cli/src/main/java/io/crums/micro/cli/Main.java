@@ -130,11 +130,13 @@ public class Main implements Runnable {
 
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
         description = {
-            "JSON file supplying local config: access_token, sql-config fields,",
-            "and/or salts array. Fields present here are used instead of fetching",
-            "from the server. CLI flags (--token, --jdbc-url, etc.) take precedence.",
-            "Recommended for sensitive values (token, salt seeds) to keep them out",
-            "of shell history."
+            """
+            JSON file supplying local config: access_token, sql-config fields, \
+            and/or salts array. Fields present here are used instead of fetching \
+            from the server. CLI flags (--token, --jdbc-url, etc.) take precedence.""",
+            """
+            Recommended for sensitive values (token, salt seeds) to keep them out \
+            of shell history."""
         })
     File localConfigFile;
 
@@ -182,8 +184,9 @@ public class Main implements Runnable {
     @Option(names = {"--from"},
         description = {
             "First row to hash and submit.",
-            "Defaults to the current chain length (re-submits the last committed",
-            "row as a minimal overlap/sanity check before appending new rows).",
+            """
+            Defaults to the current chain length (re-submits the last committed \
+            row as a minimal overlap/sanity check before appending new rows).""",
             "Set lower to widen the overlap, or to 1 for a full re-hash."
         })
     Long fromOverride;
@@ -191,10 +194,14 @@ public class Main implements Runnable {
     @Option(names = {"--to"},
         description = {
             "Last row to include in this commit (inclusive).",
-            "Defaults to the total row count reported by the source ledger.",
-            "Use to exclude rows whose source transactions may not yet have",
-            "committed, since sequence-allocated IDs can appear in MAX() before",
-            "the inserting transaction completes.",
+            """
+            Defaults to the total row count reported by the source ledger, \
+            less --lag (whether set from the command line, local config file, \
+            or the server).""",
+            """
+            Use to exclude rows whose source transactions may not yet have \
+            committed, since sequence-allocated IDs can appear in MAX() before \
+            the inserting transaction completes.""",
             "Mutually exclusive with --lag."
         })
     Long toOverride;
@@ -202,9 +209,10 @@ public class Main implements Runnable {
     @Option(names = {"--lag"},
         description = {
             "Number of trailing rows to withhold from this commit.",
-            "Equivalent to --to (source_total - N). Convenient for scheduled",
-            "scripts where a fixed buffer guards against in-flight transactions",
-            "whose IDs have been allocated but not yet committed.",
+            """
+            Equivalent to --to (source_total - N). Convenient for scheduled \
+            scripts where a fixed buffer guards against in-flight transactions \
+            whose IDs have been allocated but not yet committed.""",
             "Mutually exclusive with --to."
         })
     Long lagOverride;
@@ -379,11 +387,12 @@ public class Main implements Runnable {
       description = {
           "Print the current committed row count (GET /state, public).",
           "",
-          "When a row-count query is available — via --row-count-query, a",
-          "'row_count_query' field in --local-config, or the server's sql-config",
-          "(fetched with a bearer token when not available locally) — also connects",
-          "to the local database to report the source ledger's row count and how",
-          "many rows are available to commit, factoring in 'default_lag' when configured."
+          """
+          When a row-count query is available — via --row-count-query, a \
+          'row_count_query' field in --local-config, or the server's sql-config \
+          (fetched with a bearer token when not available locally) — also connects \
+          to the local database to report the source ledger's row count and how \
+          many rows are available to commit, factoring in 'default_lag' when configured."""
       })
   static class StatusCommand implements Callable<Integer> {
 
@@ -391,17 +400,19 @@ public class Main implements Runnable {
 
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
         description = {
-            "JSON file supplying local config; 'chain_url' field may replace the",
-            "<chain-url> argument.  When it includes sql-config fields (row_count_query,",
-            "jdbc_url, default_lag, etc.), those are used to report rows available to commit."
+            """
+            JSON file supplying local config; 'chain_url' field may replace the \
+            <chain-url> argument.  When it includes sql-config fields (row_count_query, \
+            jdbc_url, default_lag, etc.), those are used to report rows available to commit."""
         })
     File localConfigFile;
 
     @Option(names = {"--token", "-t"},
         description = {
-            "Bearer access token.  Used to fetch the row-count query (and JDBC details,",
-            "if not supplied otherwise) from the server's sql-config when not available",
-            "via --row-count-query or --local-config.",
+            """
+            Bearer access token.  Used to fetch the row-count query (and JDBC details, \
+            if not supplied otherwise) from the server's sql-config when not available \
+            via --row-count-query or --local-config.""",
             "May be omitted when --local-config supplies an 'access_token' field."
         })
     String token;
@@ -569,10 +580,11 @@ public class Main implements Runnable {
       description = {
           "Output source rows from the local SQL ledger.",
           "",
-          "Fetches chain info (public), then sql-config and salt from the server",
-          "(requires token) or from --local-config if supplied there.  Queries the",
-          "local database by row number (--row) or by an arbitrary WHERE clause",
-          "(--where, rewriting the by-no-query).",
+          """
+          Fetches chain info (public), then sql-config and salt from the server \
+          (requires token) or from --local-config if supplied there.  Queries the \
+          local database by row number (--row) or by an arbitrary WHERE clause \
+          (--where, rewriting the by-no-query).""",
           "",
           "Output is JSON (default) or pretty-printed one-cell-per-line (--pretty)."
       })
@@ -582,9 +594,10 @@ public class Main implements Runnable {
 
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
         description = {
-            "JSON file supplying local config: access_token, sql-config fields,",
-            "and/or salts array.  Fields present here are used instead of fetching",
-            "from the server.  CLI flags (--token, --jdbc-url, etc.) take precedence."
+            """
+            JSON file supplying local config: access_token, sql-config fields, \
+            and/or salts array.  Fields present here are used instead of fetching \
+            from the server.  CLI flags (--token, --jdbc-url, etc.) take precedence."""
         })
     File localConfigFile;
 
@@ -851,8 +864,9 @@ public class Main implements Runnable {
         description = {
             "Set one or more configuration values in @|yellow <file>|@, creating it if necessary.",
             "",
-            "Options not supplied are left unchanged.  Invoke multiple times to build",
-            "the file incrementally.  A typical dry-run setup:",
+            """
+            Options not supplied are left unchanged.  Invoke multiple times to build \
+            the file incrementally.  A typical dry-run setup:""",
             "",
             "  mchain config cfg.json set --jdbc-url jdbc:postgresql://db:5432/mydb",
             "  mchain config cfg.json set --by-no-query  \"SELECT ... WHERE row_no = ?\"",
@@ -933,9 +947,10 @@ public class Main implements Runnable {
               "  none       no cells are salted",
               "  all:0,2    all salted except columns 0 and 2",
               "  none:1,3   only columns 1 and 3 are salted",
-              "Column indices are 0-based.  Stored as 'salt_scheme' in the",
-              "config file; required for offline 'mchain rows' when 'salts'",
-              "are also present."
+              """
+              Column indices are 0-based.  Stored as 'salt_scheme' in the \
+              config file; required for offline 'mchain rows' when 'salts' \
+              are also present."""
           })
       String saltSchemeStr;
 
