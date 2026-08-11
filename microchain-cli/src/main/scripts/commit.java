@@ -13,7 +13,8 @@
 // Usage:
 //   jbang run --deps <group:artifact:version> microchain-cli/src/main/scripts/commit.java \
 //       <chain-url> [--token <t>] [--local-config <file>] \
-//       [--jdbc-url <url>] [--jdbc-user <user>] [--jdbc-pass <pass>] [--batch <n>] \
+//       [--jdbc-url <url>] [--jdbc-driver-jar <jar>] \
+//       [--jdbc-user <user>] [--jdbc-pass <pass>] [--batch <n>] \
 //       [--timezone <tz>] [--from <n>] [--to <n>] [--lag <n>]
 //
 // Example (token on command line):
@@ -37,6 +38,7 @@
 
 import io.crums.micro.api.ChainInfo;
 import io.crums.micro.api.CommitRequest;
+import io.crums.micro.api.DbConfig;
 import io.crums.micro.api.LocalConfig;
 import io.crums.micro.api.SqlConfig;
 import io.crums.micro.http.ChainClient;
@@ -121,6 +123,14 @@ class commit implements Callable<Integer> {
       description = "JDBC password (omit value to be prompted interactively)",
       interactive = true, echo = false, arity = "0..1")
   char[] jdbcPass;
+
+  @Option(names = {"--jdbc-driver-jar"}, paramLabel = "<jar>",
+      description = {
+          "Path to a JDBC driver JAR to load dynamically.",
+          "Relative paths are resolved against the --local-config file's directory.",
+          "Prefer JBang's --deps for classpath-based driver loading."
+      })
+  File jdbcDriverJarOverride;
 
   @Option(names = {"--batch", "-b"},
       description = "Max rows per commit request (default: ${DEFAULT-VALUE})",
@@ -263,9 +273,11 @@ class commit implements Callable<Integer> {
       return 1;
     }
 
-    SqlConfig effectiveCfg = jdbcUrlOverride != null
-        ? sqlCfg.withJdbcUrl(jdbcUrlOverride)
-        : sqlCfg;
+    DbConfig cliDb = DbConfig.EMPTY;
+    if (jdbcUrlOverride != null)       cliDb = cliDb.withJdbcUrl(jdbcUrlOverride);
+    if (jdbcDriverJarOverride != null) cliDb = cliDb.withJdbcDriverJar(jdbcDriverJarOverride.toPath().toAbsolutePath());
+    SqlConfig effectiveCfg = sqlCfg.withDbConfig(
+        sqlCfg.dbConfig().orElse(DbConfig.EMPTY).merge(cliDb));
 
     Properties props = new Properties();
     if (jdbcUser != null)

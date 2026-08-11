@@ -6,6 +6,8 @@ package io.crums.micro.api;
 import static io.crums.micro.api.ApiConstants.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,8 @@ public class DbConfigParserTest {
     DbConfig cfg2   = PARSER.toEntity(jObj);
     assertEquals(cfg.jdbcUrl(),         cfg2.jdbcUrl());
     assertEquals(cfg.jdbcDriverClass(), cfg2.jdbcDriverClass());
+    assertEquals(cfg.jdbcDriverJar(),   cfg2.jdbcDriverJar());
+    assertEquals(cfg.jdbcProps(),       cfg2.jdbcProps());
   }
 
 
@@ -38,7 +42,9 @@ public class DbConfigParserTest {
   public void testRoundtrip_both() {
     DbConfig cfg = new DbConfig(
         Optional.of("jdbc:postgresql://db:5432/mydb"),
-        Optional.of("org.postgresql.Driver"));
+        Optional.of("org.postgresql.Driver"),
+        Optional.empty(),
+        Map.of());
     assertRoundtrip(cfg);
 
     JSONObject jObj = PARSER.toJsonObject(cfg);
@@ -66,6 +72,113 @@ public class DbConfigParserTest {
     assertRoundtrip(DbConfig.EMPTY);
     JSONObject jObj = PARSER.toJsonObject(DbConfig.EMPTY);
     assertTrue(jObj.isEmpty(), "empty DbConfig produces empty JSON object");
+  }
+
+
+  @Test
+  public void testRoundtrip_withDriverJar() {
+    DbConfig cfg = DbConfig.EMPTY
+        .withJdbcUrl("jdbc:postgresql://db:5432/mydb")
+        .withJdbcDriverJar(Path.of("drivers/postgresql.jar"));
+    assertRoundtrip(cfg);
+
+    JSONObject jObj = PARSER.toJsonObject(cfg);
+    assertEquals("drivers/postgresql.jar", jObj.get(JDBC_DRIVER_JAR_KEY),
+        "relative path preserved as-is in JSON");
+    assertFalse(jObj.containsKey(JDBC_DRIVER_CLASS_KEY), "no driver class key");
+  }
+
+  @Test
+  public void testRoundtrip_withJdbcProps() {
+    DbConfig cfg = DbConfig.EMPTY
+        .withJdbcUrl("jdbc:postgresql://db:5432/mydb")
+        .withJdbcProps(Map.of("user", "alice", "password", "s3cr3t", "ssl", "true"));
+    assertRoundtrip(cfg);
+
+    JSONObject jObj = PARSER.toJsonObject(cfg);
+    JsonPrinter.println(jObj);
+    assertTrue(jObj.containsKey(JDBC_PROPS_KEY), "jdbc_props key present");
+    assertFalse(jObj.containsKey("user"),     "user not hoisted to top level");
+    assertFalse(jObj.containsKey("password"), "password not hoisted to top level");
+  }
+
+  @Test
+  public void testEmptyPropsNotSerialized() {
+    DbConfig cfg = DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:test");
+    JSONObject jObj = PARSER.toJsonObject(cfg);
+    assertFalse(jObj.containsKey(JDBC_PROPS_KEY), "no jdbc_props key when map is empty");
+  }
+
+
+  // ── resolve ───────────────────────────────────────────────────────────────
+
+  @Test
+  public void testResolve_relativePathMadeAbsolute() {
+    DbConfig cfg = DbConfig.EMPTY.withJdbcDriverJar(Path.of("drivers/pg.jar"));
+    Path configDir = Path.of("/home/user/config");
+    DbConfig resolved = cfg.resolve(configDir);
+    assertTrue(resolved.jdbcDriverJar().get().isAbsolute());
+    assertEquals(Path.of("/home/user/config/drivers/pg.jar"), resolved.jdbcDriverJar().get());
+  }
+
+  @Test
+  public void testResolve_absolutePathReturnsSameInstance() {
+    DbConfig cfg = DbConfig.EMPTY.withJdbcDriverJar(Path.of("/opt/drivers/pg.jar"));
+    assertSame(cfg, cfg.resolve(Path.of("/some/dir")));
+  }
+
+  @Test
+  public void testResolve_nullConfigDirReturnsSameInstance() {
+    DbConfig cfg = DbConfig.EMPTY.withJdbcDriverJar(Path.of("pg.jar"));
+    assertSame(cfg, cfg.resolve(null));
+  }
+
+  @Test
+  public void testResolve_noJarReturnsSameInstance() {
+    DbConfig cfg = DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:test");
+    assertSame(cfg, cfg.resolve(Path.of("/some/dir")));
+  }
+
+
+  // ── merge ─────────────────────────────────────────────────────────────────
+
+  @Test
+  public void testMerge_overridesWin() {
+    DbConfig base = new DbConfig(
+        Optional.of("jdbc:h2:mem:base"),
+        Optional.of("org.h2.Driver"),
+        Optional.empty(),
+        Map.of("ssl", "false"));
+    DbConfig overrides = DbConfig.EMPTY
+        .withJdbcUrl("jdbc:postgresql://db/prod")
+        .withJdbcProps(Map.of("ssl", "true", "user", "alice"));
+
+    DbConfig merged = base.merge(overrides);
+    assertEquals("jdbc:postgresql://db/prod", merged.jdbcUrl().orElseThrow());
+    assertEquals("org.h2.Driver",             merged.jdbcDriverClass().orElseThrow(), "base driver class kept");
+    assertEquals(Map.of("ssl", "true", "user", "alice"), merged.jdbcProps());
+  }
+
+  @Test
+  public void testMerge_emptyOverrideKeepsBase() {
+    DbConfig base = new DbConfig(
+        Optional.of("jdbc:h2:mem:test"),
+        Optional.of("org.h2.Driver"),
+        Optional.empty(),
+        Map.of());
+    DbConfig merged = base.merge(DbConfig.EMPTY);
+    assertEquals(base.jdbcUrl(),         merged.jdbcUrl());
+    assertEquals(base.jdbcDriverClass(), merged.jdbcDriverClass());
+    assertTrue(merged.jdbcProps().isEmpty());
+  }
+
+  @Test
+  public void testMerge_jarOverride() {
+    DbConfig base     = DbConfig.EMPTY.withJdbcUrl("jdbc:postgresql://db/prod");
+    DbConfig override = DbConfig.EMPTY.withJdbcDriverJar(Path.of("/opt/pg.jar"));
+    DbConfig merged   = base.merge(override);
+    assertEquals(base.jdbcUrl(),           merged.jdbcUrl());
+    assertEquals(override.jdbcDriverJar(), merged.jdbcDriverJar());
   }
 
 

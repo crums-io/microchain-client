@@ -1,49 +1,41 @@
 # microchain-cli
 
 `picocli`-based command-line tool for committing on-premises SQL rows to a
-remote microchain.
+remote microchain and for inspecting source ledger rows locally.
 
 ## Package
 
 `io.crums.micro.cli`  —  module `io.crums.micro.cli`
 
-## Entry point
+## Commands
 
-`io.crums.micro.cli.Main` — invoked as `microchain-cli [options] <command>`.
+| Command | Description |
+|---|---|
+| `mchain commit <chain-url>` | Hash new source rows locally and POST them to the chain |
+| `mchain status <chain-url>` | Print the current committed row count |
+| `mchain info <chain-url>` | Print chain metadata (salt scheme, title, description) |
+| `mchain rows` | Query source rows from the local SQL ledger |
+| `mchain config <file> set` | Create or update a local config JSON file |
 
-## Planned command structure
+Run any command with `--help` for the full option list.
 
+## `mchain rows` quick reference
+
+```sh
+mchain rows -c local-config.json --row 42          # fetch row 42
+mchain rows -c local-config.json -r 42             # same, short form
+mchain rows -c local-config.json --where "order_id = 7"  # WHERE clause query
+mchain rows -c local-config.json -w "order_id = 7" # same, short form
+mchain rows -c local-config.json --count           # print total row count
+mchain rows -c local-config.json -n                # same, short form
+mchain rows -c local-config.json -w "x = 42" --pretty   # pretty-print
 ```
-microchain-cli
-  commit    Fetch chain config, hash new rows locally, POST /commit
-  status    Print the current committed row count (GET /state)
-  info      Print chain metadata (GET /info, /sql-config)
-```
-
-## Commit workflow (what the `commit` command will do)
-
-1. Accept: server URL, username, chain name, Bearer access token, optional
-   JDBC credentials.
-2. `GET /info` → `ChainInfo` (salt scheme).
-3. `GET /salts` → `TableSalt` (secret seeds; token required).
-4. `GET /sql-config` → `SqlConfig` (JDBC queries, optional connection URL).
-5. `GET /state` → current committed row count N via `PathPack`.
-6. Open local `SqlLedger` via `SqlConfig.open(...)`.
-7. Hash rows N+1 … M locally (M = `SqlConfig.rowCountQuery` result).
-8. `POST /commit` with `CommitRequest(startRow=N+1, inputHashes=[...])`.
-9. Print `CommitResponse.rowCount()`.
-
-Steps 2–5 use `RemoteSkipLedger` (microchain-http); steps 6–7 use
-`SqlLedger` (sql-ledger, accessed via microchain-api's `SqlConfig`).
-
-## Status
-
-**Stub** — `Main.run()` only prints a usage hint.  Subcommands are not yet
-implemented.
 
 ## Dependencies
 
 - `microchain-api`
-- `microchain-http` (implicitly — CLI calls into http layer)
-- `sql-ledger` (for local row hashing)
+- `microchain-http`
 - `picocli` 4.7.5
+
+See the [top-level README](../README.md) for full documentation including the
+local config file format, dynamic JDBC driver loading, and native-access warnings.

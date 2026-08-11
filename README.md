@@ -48,12 +48,75 @@ Both tools share the same options.  Run with `--help` for the full list.
 --jdbc-url <url>         JDBC connection URL (overrides server config and local-config value)
 --jdbc-user <user>       JDBC username
 --jdbc-pass [<pass>]     JDBC password (omit value to be prompted interactively)
+--jdbc-driver-jar <jar>  Path to a JDBC driver JAR to load dynamically (see below)
 --timezone, --tz <tz>    IANA timezone for hashing DATE/TIMESTAMP columns
 --from <n>               First row to submit (default: current chain length)
 --to <n>                 Last row to submit, inclusive (mutually exclusive with --lag)
 --lag <n>                Trailing rows to withhold (mutually exclusive with --to)
 --batch, -b <n>          Max rows per commit request (default: 1000)
 ```
+
+### Dynamic JDBC driver loading (`--jdbc-driver-jar`)
+
+When a JDBC driver is not on the classpath, pass its JAR directly:
+
+```sh
+mchain commit https://micro.crums.io/alice/sales \
+    --local-config ~/.config/crums/sales.json \
+    --jdbc-driver-jar /path/to/sqlite-jdbc-3.50.3.0.jar
+```
+
+The JAR can also be specified in the local config file with the `jdbc_driver_jar`
+key (relative paths are resolved against the config file's directory):
+
+```json
+{
+  "jdbc_url":        "jdbc:sqlite:/data/sales.db",
+  "jdbc_driver_jar": "drivers/sqlite-jdbc-3.50.3.0.jar",
+  "by_no_query":     "SELECT amt, ts FROM sales_ledger WHERE rn = ?",
+  "row_count_query": "SELECT MAX(rn) FROM sales_ledger"
+}
+```
+
+The JAR is loaded into a JPMS named module at runtime, so it stays isolated from
+the application's own module graph.
+
+#### Native-access warnings
+
+Some JDBC drivers bundle a native library (`.so` / `.dylib`) that they extract
+and load via `System::load` at connect time.  SQLite is the most common example.
+From Java 21 onwards, calling restricted methods such as `System::load` from a
+named module without explicit permission prints a JVM warning to stderr:
+
+```
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.sqlite.SQLiteJDBCLoader
+         in module org.xerial.sqlitejdbc ...
+WARNING: Use --enable-native-access=org.xerial.sqlitejdbc to avoid a warning
+WARNING: Restricted methods will be blocked in a future release unless native
+         access is enabled
+```
+
+The warning is about the **driver**, not about `mchain` itself — `mchain` uses
+no native code of its own.
+
+**Suppressing the warning** via `JAVA_OPTS` (the module name comes from the JAR's
+`Automatic-Module-Name` manifest attribute, or `module-info.class`):
+
+```sh
+# SQLite
+JAVA_OPTS="--enable-native-access=org.xerial.sqlitejdbc" mchain rows -c cfg.json -n
+
+# Any other native driver — replace the module name accordingly
+JAVA_OPTS="--enable-native-access=<module-name>" mchain commit ...
+```
+
+**Future Java compatibility:** a future JDK release will promote this warning to a
+hard failure — the native library will not load at all without the flag.  If you use
+a JDBC driver that bundles native code, add the appropriate `--enable-native-access`
+value to your `JAVA_OPTS` now to be forward-compatible.
+
+---
 
 ### Local config file (`--local-config`)
 
@@ -83,7 +146,7 @@ server as normal.
 {
   "access_token":      "mcw_...",
   "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
-  "row_count_query":   "SELECT COUNT(*) FROM sales",
+  "row_count_query":   "SELECT  MAX(row_no) FROM sales",
   "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
   "jdbc_driver_class": "org.postgresql.Driver",
   "timezone":          "America/New_York",
@@ -98,7 +161,7 @@ server as normal.
 {
   "access_token":      "mcw_...",
   "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
-  "row_count_query":   "SELECT COUNT(*) FROM sales",
+  "row_count_query":   "SELECT MAX(row_no) FROM sales",
   "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
   "jdbc_driver_class": "org.postgresql.Driver",
   "timezone":          "America/New_York",
@@ -130,16 +193,106 @@ chmod 600 ~/.config/crums/sales.json
 When the file supplies `by_no_query` + `row_count_query`, the `GET /sql-config` call
 is skipped entirely.  When the file supplies a `salts` array, `GET /salts` is skipped.
 
-#### Examples
+Note the file also supports a `chain_url` setting. When set, the command line
+argument (chain URL) need not be supplied. 
+
+### Designing and setting up a microchain
+
+A recommended workflow for turning an existing SQL table (or view) into a
+microchain, from first query to first commit. `mchain config <file> set
+<options>` creates or updates the local config file one field at a time —
+options mirror the commit command flags, and any option not supplied is left
+unchanged, so the file can be built up incrementally across these steps.
+
+1. **Design the ledger query first.**  Before anything exists on the server,
+   define the JDBC connection and the two required queries:
+
+   ```sh
+   mchain config ~/.config/crums/sales.json set \
+       --jdbc-url jdbc:postgresql://db.example.com:5432/mydb
+   mchain config ~/.config/crums/sales.json set \
+       --by-no-query "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?"
+   mchain config ~/.config/crums/sales.json set \
+       --row-count-query "SELECT MAX(row_no) FROM sales"
+   ```
+
+   `by_no_query` must return **at most one row**; an empty result set is
+   interpreted as a "null" row rather than an error. The column values it
+   returns for a given row number must **never change** — a microchain
+   records the immutable history of the query's *results*, so editing an
+   already-hashed row afterward silently invalidates that row's commitment.
+
+2. **Test the queries**, entirely offline, before registering the chain
+   anywhere:
+
+   ```sh
+   mchain status -c ~/.config/crums/sales.json
+   mchain rows   -c ~/.config/crums/sales.json --row 1 --pretty
+   mchain rows   -c ~/.config/crums/sales.json --where "row_no = 42" --pretty
+   ```
+
+3. **Declare the chain URL on the server** — register the chain on the
+   website, e.g. as `https://micro.crums.io/alice/sales`.
+
+4. **Set the chain URL** in the config file, then confirm it resolves:
+
+   ```sh
+   mchain config ~/.config/crums/sales.json set \
+       --chain-url https://micro.crums.io/alice/sales
+   mchain status -c ~/.config/crums/sales.json
+   ```
+
+5. **Define the salt scheme** — preferably on the website, since the scheme
+   itself is public information a verifier needs (see `GET /info` below). If
+   the scheme salts any cells, the server generates a random salt seed
+   automatically. That seed *is* sensitive — a chain owner who'd rather manage
+   it themselves (to back it up independently, or precompute it before
+   registering) can instead set the scheme and seed locally:
+
+   ```sh
+   mchain config ~/.config/crums/sales.json set --salt-scheme all
+   mchain config ~/.config/crums/sales.json set --salt-seed
+   ```
+
+   `--salt-scheme` follows the `<base>[:<except-indices>]` format (`all`,
+   `none`, `all:0,2`, …) — see `mchain config set --help`. `--salt-seed`
+   without a value generates a cryptographically random 32-byte seed via
+   `SecureRandom` and prints it; it sets (or replaces) the single salt epoch
+   starting at row 1. Back the seed up securely — it's required to reproduce
+   any row's input hash.
+
+6. **Retrieve the chain's access token** from its manage page on the website
+   and store it, then protect the file (it now holds secrets):
+
+   ```sh
+   mchain config ~/.config/crums/sales.json set --token mcw_...
+   chmod 600 ~/.config/crums/sales.json
+   ```
+
+7. **Re-test**, if appropriate, to confirm the server-side configuration
+   (salt scheme, token) works end-to-end:
+
+   ```sh
+   mchain rows -c ~/.config/crums/sales.json --row 1 --pretty
+   ```
+
+8. **Commit** — a few rows first as a sanity check, then everything:
+
+   ```sh
+   mchain commit https://micro.crums.io/alice/sales \
+       -c ~/.config/crums/sales.json --to 10
+   mchain commit https://micro.crums.io/alice/sales \
+       -c ~/.config/crums/sales.json
+   ```
+
+### Commit examples
 
 ```sh
-# Dry run: no chain on the server yet — all config from a local file
-mchain commit https://micro.crums.io/alice/sales \
-    --local-config ~/.config/crums/sales.json
+# No chain config on the server — all config from a local file
+mchain commit --local-config ~/.config/crums/sales.json
 
 # JBang equivalent:
 jbang run --deps org.postgresql:postgresql:42.7.3 commit.java \
-    https://micro.crums.io/alice/sales \
     --local-config ~/.config/crums/sales.json
 
 # Override the JDBC URL at run time (e.g. to test against a staging DB):
@@ -147,48 +300,6 @@ mchain commit https://micro.crums.io/alice/sales \
     --local-config ~/.config/crums/sales.json \
     --jdbc-url jdbc:postgresql://staging-db:5432/mydb
 ```
-
-### Building a local config file incrementally (`mchain config set`)
-
-`mchain config <file> set <options>` creates or updates a local config file one
-field at a time.  This is especially useful during the **dry-run / pre-registration
-phase**: you can configure and validate the JDBC connection and SQL queries before
-the chain exists on the server.
-
-Options mirror the commit command flags; any option not supplied is left unchanged.
-
-```sh
-# 1. Set the JDBC connection
-mchain config ~/.config/crums/sales.json set \
-    --jdbc-url jdbc:postgresql://db.example.com:5432/mydb
-
-# 2. Add the SQL queries
-mchain config ~/.config/crums/sales.json set \
-    --by-no-query "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?"
-mchain config ~/.config/crums/sales.json set \
-    --row-count-query "SELECT COUNT(*) FROM sales"
-
-# 3. Auto-generate a salt seed (prints the generated Base64_32 value)
-mchain config ~/.config/crums/sales.json set --salt-seed
-
-# 4. Or supply a specific seed
-mchain config ~/.config/crums/sales.json set --salt-seed <43-char Base64_32>
-
-# 5. Store the bearer token (after registering the chain on the website)
-mchain config ~/.config/crums/sales.json set --token mcw_...
-
-# 6. Protect the file
-chmod 600 ~/.config/crums/sales.json
-
-# 7. Commit — the chain URL still identifies which chain on the server
-mchain commit https://micro.crums.io/alice/sales \
-    --local-config ~/.config/crums/sales.json
-```
-
-`--salt-seed` without a value generates a cryptographically random 32-byte seed
-using `SecureRandom` and prints it to stdout.  It sets (or replaces) the single
-salt epoch starting at row 1.  The seed is secret — back it up securely before
-registering the chain, as it is required to reproduce any row's input hash.
 
 ---
 
@@ -364,7 +475,7 @@ Returns the SQL ledger configuration stored server-side.  All fields except
 ```json
 {
   "by_no_query":       "SELECT item_count, price, txn_date, cust_id FROM sales WHERE row_no = ?",
-  "row_count_query":   "SELECT COUNT(*) FROM sales",
+  "row_count_query":   "SELECT MAX(row_no) FROM sales",
   "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
   "jdbc_driver_class": "org.postgresql.Driver",
   "timezone":          "America/New_York",
@@ -374,7 +485,7 @@ Returns the SQL ledger configuration stored server-side.  All fields except
 
 | Field | Description |
 |---|---|
-| `by_no_query` | Parameterised SQL returning one row by its 1-based row number (single `?`) |
+| `by_no_query` | Parameterised SQL returning at most one row by its 1-based row number (single `?`) |
 | `row_count_query` | No-parameter SQL returning the current row count as a single integer |
 | `jdbc_url` | JDBC connection URL; overridden by `--jdbc-url` on the CLI |
 | `jdbc_driver_class` | Fully-qualified JDBC driver class (optional; usually auto-detected) |

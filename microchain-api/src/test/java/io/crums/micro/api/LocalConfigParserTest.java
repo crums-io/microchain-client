@@ -7,13 +7,19 @@ import static io.crums.micro.api.ApiConstants.*;
 import static io.crums.micro.api.SqlConfigParserTest.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
 import io.crums.sldg.salt.EpochedTableSalt.EpochSeed;
+import io.crums.sldg.src.SaltScheme;
+import io.crums.testing.IoTestCase;
 import io.crums.util.json.JsonPrinter;
 import io.crums.util.json.simple.JSONObject;
 
@@ -21,7 +27,7 @@ import io.crums.util.json.simple.JSONObject;
 /**
  * Roundtrip, structural, and wither tests for {@link LocalConfig.Parser}.
  */
-public class LocalConfigParserTest {
+public class LocalConfigParserTest extends IoTestCase {
 
   private static final LocalConfig.Parser PARSER = LocalConfig.PARSER;
 
@@ -50,6 +56,16 @@ public class LocalConfigParserTest {
     assertEquals(cfg.sqlConfig(),     cfg2.sqlConfig());
     assertEquals(cfg.looseDbConfig(), cfg2.looseDbConfig());
     assertSaltEpochsEqual(cfg.saltEpochs(), cfg2.saltEpochs());
+    assertSaltSchemeEqual(cfg.saltScheme(), cfg2.saltScheme());
+  }
+
+  private static void assertSaltSchemeEqual(
+      Optional<SaltScheme> expected, Optional<SaltScheme> actual) {
+    assertEquals(expected.isPresent(), actual.isPresent(), "saltScheme presence");
+    if (expected.isEmpty()) return;
+    SaltScheme e = expected.get(), a = actual.get();
+    assertEquals(e.isPositive(), a.isPositive(), "saltScheme isPositive");
+    assertArrayEquals(e.cellIndices(), a.cellIndices(), "saltScheme cellIndices");
   }
 
 
@@ -84,7 +100,9 @@ public class LocalConfigParserTest {
     SqlConfig sql = new SqlConfig(BY_NO, COUNT,
         Optional.of(new DbConfig(
             Optional.of("jdbc:postgresql://db:5432/mydb"),
-            Optional.of("org.postgresql.Driver"))),
+            Optional.of("org.postgresql.Driver"),
+            Optional.empty(),
+            Map.of())),
         Optional.of("America/New_York"),
         Optional.of(5L));
     LocalConfig cfg = LocalConfig.EMPTY
@@ -98,7 +116,9 @@ public class LocalConfigParserTest {
   public void testRoundtrip_looseDbConfig() {
     DbConfig db = new DbConfig(
         Optional.of("jdbc:h2:mem:test"),
-        Optional.of("org.h2.Driver"));
+        Optional.of("org.h2.Driver"),
+        Optional.empty(),
+        Map.of());
     LocalConfig cfg = LocalConfig.EMPTY.withDbConfig(db);
     assertRoundtrip(cfg);
     assertTrue(cfg.looseDbConfig().isPresent());
@@ -231,5 +251,114 @@ public class LocalConfigParserTest {
         Optional.empty(), Optional.empty());
     LocalConfig withSql = LocalConfig.EMPTY.withSqlConfig(sql);
     assertEquals(sql.dbConfig(), withSql.dbConfig());
+  }
+
+
+  // ── salt scheme ───────────────────────────────────────────────────────────────
+
+  @Test
+  public void testRoundtrip_saltSchemeAll() {
+    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(SaltScheme.SALT_ALL);
+    assertRoundtrip(cfg);
+    // Verify the JSON contains a salt_scheme object
+    JSONObject jObj = PARSER.toJsonObject(cfg);
+    assertTrue(jObj.containsKey(SALT_SCHEME_KEY), "salt_scheme key present");
+    JsonPrinter.println(jObj);
+  }
+
+  @Test
+  public void testRoundtrip_saltSchemeNone() {
+    // Explicit NO_SALT (as opposed to absent saltScheme)
+    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(SaltScheme.NO_SALT);
+    assertRoundtrip(cfg);
+    JSONObject jObj = PARSER.toJsonObject(cfg);
+    assertTrue(jObj.containsKey(SALT_SCHEME_KEY), "salt_scheme key present");
+  }
+
+  @Test
+  public void testRoundtrip_saltSchemeOnlySome() {
+    // "none except 1,3" — only columns 1 and 3 are salted (positive, non-empty)
+    SaltScheme scheme = SaltScheme.of(1, 3);
+    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(scheme);
+    assertRoundtrip(cfg);
+    JsonPrinter.println(PARSER.toJsonObject(cfg));
+  }
+
+  @Test
+  public void testRoundtrip_saltSchemeAllExcept() {
+    // "all except 0,2" — all salted except columns 0 and 2 (negative, non-empty)
+    SaltScheme scheme = SaltScheme.ofAllExcept(0, 2);
+    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(scheme);
+    assertRoundtrip(cfg);
+    JsonPrinter.println(PARSER.toJsonObject(cfg));
+  }
+
+  @Test
+  public void testRoundtrip_saltSchemeWithEpochs() {
+    // Salt scheme alongside salt epochs — the combo needed for fully offline rows
+    SaltScheme scheme = SaltScheme.SALT_ALL;
+    List<EpochSeed> epochs = List.of(new EpochSeed(1L, seed(0xAB)));
+    LocalConfig cfg = LocalConfig.EMPTY
+        .withSaltScheme(scheme)
+        .withSaltEpochs(epochs);
+    assertRoundtrip(cfg);
+    assertTrue(cfg.saltScheme().isPresent());
+    assertFalse(cfg.saltEpochs().isEmpty());
+  }
+
+  @Test
+  public void testAbsentSaltSchemeNotSerialized() {
+    // When saltScheme is absent, no salt_scheme key should appear in JSON
+    JSONObject jObj = PARSER.toJsonObject(LocalConfig.EMPTY);
+    assertFalse(jObj.containsKey(SALT_SCHEME_KEY), "no salt_scheme key when absent");
+  }
+
+
+  // ── file-loading (Parser.toEntity(File) resolves relative jdbc_driver_jar) ──
+
+  @Test
+  public void testToEntityFile_resolvesRelativeDriverJar() throws Exception {
+    final Object label = new Object() {};
+    File dir = newMethodRunDir(label);
+
+    // Write a config file with a relative jdbc_driver_jar path
+    JSONObject jObj = new JSONObject();
+    jObj.put(JDBC_URL_KEY,        "jdbc:postgresql://db:5432/mydb");
+    jObj.put(JDBC_DRIVER_JAR_KEY, "drivers/pg.jar");
+    File cfgFile = new File(dir, "local-config.json");
+    Files.writeString(cfgFile.toPath(), JsonPrinter.toJson(jObj));
+
+    LocalConfig cfg = PARSER.toEntity(cfgFile);
+
+    Path jar = cfg.dbConfig()
+        .flatMap(DbConfig::jdbcDriverJar)
+        .orElseThrow(() -> new AssertionError("jdbcDriverJar not found"));
+
+    assertTrue(jar.isAbsolute(), "path should be absolute after loading from file");
+    assertEquals(dir.toPath().resolve("drivers/pg.jar").toAbsolutePath(), jar);
+  }
+
+  @Test
+  public void testToEntityFile_resolvesJarWithinSqlConfig() throws Exception {
+    final Object label = new Object() {};
+    File dir = newMethodRunDir(label);
+
+    JSONObject jObj = new JSONObject();
+    jObj.put(BY_NO_QUERY_KEY,     BY_NO);
+    jObj.put(ROW_COUNT_QUERY_KEY, COUNT);
+    jObj.put(JDBC_URL_KEY,        "jdbc:postgresql://db:5432/mydb");
+    jObj.put(JDBC_DRIVER_JAR_KEY, "drivers/pg.jar");
+    File cfgFile = new File(dir, "local-config.json");
+    Files.writeString(cfgFile.toPath(), JsonPrinter.toJson(jObj));
+
+    LocalConfig cfg = PARSER.toEntity(cfgFile);
+
+    assertTrue(cfg.sqlConfig().isPresent(), "sqlConfig should be present");
+    Path jar = cfg.sqlConfig().get().dbConfig()
+        .flatMap(DbConfig::jdbcDriverJar)
+        .orElseThrow(() -> new AssertionError("jdbcDriverJar not found in sqlConfig"));
+
+    assertTrue(jar.isAbsolute(), "path inside sqlConfig should be absolute");
+    assertEquals(dir.toPath().resolve("drivers/pg.jar").toAbsolutePath(), jar);
   }
 }

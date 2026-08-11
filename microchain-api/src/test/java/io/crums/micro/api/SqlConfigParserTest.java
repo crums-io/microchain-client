@@ -6,6 +6,7 @@ package io.crums.micro.api;
 import static io.crums.micro.api.ApiConstants.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -85,7 +86,9 @@ public class SqlConfigParserTest {
     SqlConfig cfg = new SqlConfig(BY_NO, COUNT,
         Optional.of(new DbConfig(
             Optional.of("jdbc:postgresql://db:5432/mydb"),
-            Optional.of("org.postgresql.Driver"))),
+            Optional.of("org.postgresql.Driver"),
+            Optional.empty(),
+            Map.of())),
         Optional.of("America/New_York"),
         Optional.of(3L));
     assertRoundtrip(cfg);

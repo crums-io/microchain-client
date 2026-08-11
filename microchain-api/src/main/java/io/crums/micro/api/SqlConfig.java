@@ -84,7 +84,7 @@ public record SqlConfig(
   /**
    * Opens a JDBC connection via {@link DbConfig#openConnection(Properties)}.
    *
-   * @param info connection properties (e.g. {@code user}, {@code password}), or {@code null}
+   * @param info connection properties, or {@code null}
    * @throws IllegalStateException if no {@link DbConfig} is configured
    * @throws SQLException          on connection failure
    */
