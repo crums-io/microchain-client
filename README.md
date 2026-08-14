@@ -637,3 +637,36 @@ mvn package
 ```
 
 Java 22+, Maven 3.9+.
+
+### Native installer (`jpackage`)
+
+`mchain` loads JDBC drivers dynamically at run time (see
+[`--jdbc-driver-jar`](#dynamic-jdbc-driver-loading---jdbc-driver-jar) above), so it can't be
+compiled ahead-of-time (e.g. GraalVM native-image). Instead, a self-contained
+installer bundling a Java runtime is built with `jpackage`, using the
+`@file`-style option files under `jpckg/` (shared attribution/icon) and
+`microchain-cli/jpckg/base` (module name, description).
+
+`jpackage` can't cross-compile: each installer must be built on its target OS,
+from the `microchain-cli` subdirectory after `mvn package`:
+
+```
+# Linux — produces a .deb or .rpm, depending on distro
+$ jpackage @jpckg/base @../jpckg/attrib @../jpckg/linux
+
+# macOS
+$ jpackage @jpckg/base @../jpckg/attrib @../jpckg/mac
+
+# Windows — @..\jpckg\file doesn't work; copy the shared files in first
+> copy ..\jpckg\attrib jpckg
+> copy ..\jpckg\win jpckg
+> copy ..\jpckg\logo.ico jpckg
+> jpackage @jpckg\base @jpckg\attrib @jpckg\win
+```
+
+The `.github/workflows/release.yml` workflow automates this across all three
+OSes (via a build matrix) and attaches the resulting installers to a GitHub
+Release whenever a `v*` tag is pushed. It also checks out and installs
+`skipledger`, `io-util`, and `merkle-tree` from source first, since those are
+still SNAPSHOT dependencies not published anywhere CI can otherwise resolve
+them from.

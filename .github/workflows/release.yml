@@ -1,0 +1,143 @@
+name: Release native installers
+
+# Builds mchain into a native installer on each of the 3 target OSes using
+# jpackage, then attaches them to a GitHub Release.
+#
+# jpackage can't cross-compile: each installer must be built on its own
+# target OS, hence the matrix below.
+#
+# microchain-client depends on SNAPSHOT artifacts (skipledger, io-util,
+# merkle-tree) that live in sibling crums-io repos and aren't published
+# anywhere Maven can resolve them from, so this workflow checks those repos
+# out and `mvn install`s them first, mirroring local multi-repo dev. Once
+# those deps are cut as real releases this can be trimmed to just the
+# microchain-client checkout + build.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out microchain-client
+        uses: actions/checkout@v4
+        with:
+          path: microchain-client
+
+      - name: Check out merkle-tree
+        uses: actions/checkout@v4
+        with:
+          repository: crums-io/merkle-tree
+          path: merkle-tree
+
+      - name: Check out io-util
+        uses: actions/checkout@v4
+        with:
+          repository: crums-io/io-util
+          path: io-util
+
+      - name: Check out skipledger
+        uses: actions/checkout@v4
+        with:
+          repository: crums-io/skipledger
+          path: skipledger
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "22"
+
+      - name: Cache local Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+
+      # --- Build SNAPSHOT dependencies from source, in dependency order ---
+
+      - name: Install merkle-tree
+        working-directory: merkle-tree
+        run: mvn -B -q install -DskipTests
+
+      - name: Install io-util (io-util, jsonimple)
+        working-directory: io-util
+        run: mvn -B -q -pl io-util,jsonimple -am install -DskipTests
+
+      - name: Install skipledger (skipledger-base, sql-ledger)
+        working-directory: skipledger
+        run: mvn -B -q -pl skipledger-base,sql-ledger -am install -DskipTests
+
+      # --- Build mchain itself ---
+
+      - name: Build microchain-client
+        working-directory: microchain-client
+        run: mvn -B -q package -DskipTests
+
+      # --- Package a native installer (OS-specific jpackage invocation) ---
+
+      - name: Install WiX Toolset (Windows)
+        if: runner.os == 'Windows'
+        run: choco install -y wixtoolset
+
+      - name: jpackage (Linux)
+        if: runner.os == 'Linux'
+        working-directory: microchain-client/microchain-cli
+        run: jpackage @jpckg/base @../jpckg/attrib @../jpckg/linux
+
+      - name: jpackage (macOS)
+        if: runner.os == 'macOS'
+        working-directory: microchain-client/microchain-cli
+        run: jpackage @jpckg/base @../jpckg/attrib @../jpckg/mac
+
+      - name: jpackage (Windows)
+        if: runner.os == 'Windows'
+        working-directory: microchain-client/microchain-cli
+        shell: cmd
+        run: |
+          copy ..\jpckg\attrib jpckg
+          copy ..\jpckg\win jpckg
+          copy ..\jpckg\logo.ico jpckg
+          jpackage @jpckg\base @jpckg\attrib @jpckg\win
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mchain-${{ matrix.os }}
+          path: |
+            microchain-client/microchain-cli/target/*.deb
+            microchain-client/microchain-cli/target/*.rpm
+            microchain-client/microchain-cli/target/*.dmg
+            microchain-client/microchain-cli/target/*.pkg
+            microchain-client/microchain-cli/target/*.msi
+            microchain-client/microchain-cli/target/*.exe
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*/*

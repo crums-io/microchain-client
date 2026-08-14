@@ -1,0 +1,5 @@
+-d target
+--name mchain
+--module-path target/appassembler/repo
+--module io.crums.micro.cli
+--description "mchain: Crums Microchain client CLI"

@@ -40,6 +40,21 @@
   <build>
     <plugins>
 
+      <!-- Embeds the module's main class, so jpackage/java -m can launch it
+           via just the module name (target/appassembler/repo). -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.1</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>io.crums.micro.cli.Main</mainClass>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+
       <!-- Uber jar: java -jar mchain-VERSION.jar -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
