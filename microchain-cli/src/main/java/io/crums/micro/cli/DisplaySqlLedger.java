@@ -15,11 +15,10 @@ import java.util.regex.Pattern;
 import io.crums.sldg.salt.TableSalt;
 import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.SourceRow;
-import io.crums.sldg.src.sql.SqlLedger;
 import io.crums.util.TaskStack;
 
 /**
- * {@link SqlLedger} subclass that can execute ad-hoc WHERE-clause queries
+ * {@link LabeledSqlLedger} subclass that can execute ad-hoc WHERE-clause queries
  * against the source database and return the matching rows as {@link SourceRow}s.
  *
  * <p>Transforms the {@code byNoQuery} — which has the form
@@ -28,7 +27,7 @@ import io.crums.util.TaskStack;
  * constraint can be appended.  The pk column becomes column 1 in the result set,
  * providing the skipledger row number needed to build each {@link SourceRow}.</p>
  */
-public class DisplaySqlLedger extends SqlLedger {
+public class DisplaySqlLedger extends LabeledSqlLedger {
 
   /** Matches: SELECT <select-list+from> WHERE <pk-col> = ?  (trailing whitespace ok) */
   private static final Pattern BY_NO_PATTERN = Pattern.compile(

@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 
 import io.crums.micro.api.ChainInfo;
+import io.crums.micro.api.ColumnInfo;
 import io.crums.micro.api.CommitRequest;
 import io.crums.micro.api.CommitResponse;
 import io.crums.micro.api.SqlConfig;
@@ -143,6 +144,47 @@ public class ChainClient {
   }
 
 
+  // ── /columns ──────────────────────────────────────────────────────────────────
+
+  /**
+   * {@code GET /{user}/{chain}/columns} — decorative column metadata, public.
+   *
+   * <p>Unlike {@link #getSqlConfig(String)}, this requires no token: column
+   * names/descriptions are non-sensitive and are needed to render receipts
+   * for recipients who hold a source row but no bearer token.</p>
+   *
+   * @return column metadata ordered by {@link ColumnInfo#index()};
+   *         empty when the chain owner hasn't configured any
+   * @throws IOException          on HTTP failure
+   * @throws InterruptedException if the HTTP call is interrupted
+   */
+  public List<ColumnInfo> getColumns() throws IOException, InterruptedException {
+    String url = endpointUrl("columns");
+    var resp = httpGet(url);
+    if (resp.statusCode() == 404)
+      return List.of();
+    checkOk(resp, url);
+    return ColumnInfo.PARSER.toEntityList(parseArray(resp.body(), url));
+  }
+
+  /**
+   * {@code PUT /{user}/{chain}/columns} — replaces the chain's column metadata.
+   *
+   * @param token   Bearer access token
+   * @param columns full replacement list; pass an empty list to clear
+   * @throws SecurityException    if the token is missing or invalid (HTTP 401)
+   * @throws IOException          on HTTP failure
+   * @throws InterruptedException if the HTTP call is interrupted
+   */
+  public void putColumns(String token, List<ColumnInfo> columns)
+      throws IOException, InterruptedException {
+    String url  = endpointUrl("columns");
+    String body = ColumnInfo.PARSER.toJsonArray(columns).toJSONString();
+    var resp = httpPut(url, token, body);
+    checkOk(resp, url);
+  }
+
+
   // ── /state ────────────────────────────────────────────────────────────────────
 
   /**
@@ -250,6 +292,18 @@ public class ChainClient {
     return http.send(
         HttpRequest.newBuilder(URI.create(url))
             .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("Authorization", "Bearer " + token)
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> httpPut(String url, String token, String jsonBody)
+      throws IOException, InterruptedException {
+    return http.send(
+        HttpRequest.newBuilder(URI.create(url))
+            .PUT(HttpRequest.BodyPublishers.ofString(jsonBody))
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .header("Authorization", "Bearer " + token)

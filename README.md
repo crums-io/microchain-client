@@ -222,6 +222,13 @@ unchanged, so the file can be built up incrementally across these steps.
    records the immutable history of the query's *results*, so editing an
    already-hashed row afterward silently invalidates that row's commitment.
 
+   Give each selected column a deliberate name via SQL `AS`, e.g.
+   `SELECT order_id, item_count AS Count, unit_price AS Price FROM sale_items WHERE sale_item_id = ?`.
+   `mchain rows --pretty` falls back to whatever the JDBC driver reports as
+   the column's label when no name has been configured server-side (see step
+   7), so a query written with clear `AS` aliases displays sensibly even
+   before column metadata exists.
+
 2. **Test the queries**, entirely offline, before registering the chain
    anywhere:
 
@@ -269,20 +276,47 @@ unchanged, so the file can be built up incrementally across these steps.
    chmod 600 ~/.config/crums/sales.json
    ```
 
-7. **Re-test**, if appropriate, to confirm the server-side configuration
-   (salt scheme, token) works end-to-end:
+7. **Optionally name the columns** — decorative metadata (it's never part of
+   the commitment hash) that `mchain rows --pretty` displays in place of bare
+   positional indices, and that future features (`/verify` receipts,
+   Qute-rendered templates) will use to label cells for recipients who hold a
+   source row but no bearer token. Unlike the rest of the chain's
+   configuration, this is public and is set directly via the CLI — no manual
+   server-side step required:
+
+   ```sh
+   mchain columns -c ~/.config/crums/sales.json \
+       --name 0="Order ID" \
+       --name 1="Count" \
+       --name 2="Price" --description 2="Unit price, pre-tax"
+   ```
+
+   Options not supplied are left unchanged — the command fetches the current
+   list, merges in the given `--name` / `--description` / `--clear`
+   overrides, and PUTs the full merged list back. Run without any of those
+   options to view the current metadata:
+
+   ```sh
+   mchain columns -c ~/.config/crums/sales.json
+   ```
+
+   Column indices are 0-based, matching `--salt-scheme`. As noted in step 1,
+   a query written with clear `AS` aliases already displays sensibly via the
+   JDBC fallback, so this step is most useful for names the query itself
+   can't express well, or for adding a longer `--description`.
+
+8. **Re-test**, if appropriate, to confirm the server-side configuration
+   (salt scheme, token, column names) works end-to-end:
 
    ```sh
    mchain rows -c ~/.config/crums/sales.json --row 1 --pretty
    ```
 
-8. **Commit** — a few rows first as a sanity check, then everything:
+9. **Commit** — a few rows first as a sanity check, then everything:
 
    ```sh
-   mchain commit https://micro.crums.io/alice/sales \
-       -c ~/.config/crums/sales.json --to 10
-   mchain commit https://micro.crums.io/alice/sales \
-       -c ~/.config/crums/sales.json
+   mchain commit -c ~/.config/crums/sales.json --to 10
+   mchain commit -c ~/.config/crums/sales.json
    ```
 
 ### Commit examples
@@ -315,6 +349,8 @@ below, replace `https://micro.crums.io/alice/sales` with your chain URL and
 |---|---|---|---|
 | GET | `/{user}/_chains` | — | List all chains for a user |
 | GET | `/{user}/{chain}/info` | — | Chain metadata: ledger type, title, salt scheme |
+| GET | `/{user}/{chain}/columns` | — | Decorative column names/descriptions |
+| PUT | `/{user}/{chain}/columns` | Bearer | Replace column names/descriptions |
 | GET | `/{user}/{chain}/state` | — | Skipledger commitment path (PathPack) |
 | GET | `/{user}/{chain}/salts` | Bearer | Salt epoch seeds (owner only) |
 | GET | `/{user}/{chain}/sql-config` | Bearer | JDBC queries, connection URL, timezone, default lag |
@@ -353,6 +389,59 @@ Response fields:
 salted with a per-cell secret derived from the chain's salt seed (required to
 reproduce the input hash from a revealed row).  `cell_indices` lists which
 column positions within a row are salted.
+
+---
+
+### `GET` / `PUT /columns` — column metadata (public read, Bearer write)
+
+Decorative per-column metadata: a human-readable name and optional
+description, keyed by 0-based column index (matching `salt_scheme.cell_indices`
+and `SourceRow.cells()` ordering). Unlike `/sql-config`, `GET` requires no
+token — this data is meant to label cells for recipients who hold a source
+row but no bearer token (e.g. future `/verify` receipts, Qute-rendered
+templates).
+
+```sh
+# View (public)
+curl https://micro.crums.io/alice/sales/columns
+
+# Replace (Bearer; full-list replace — see `mchain columns` below for
+# incremental edits that preserve entries you don't mention)
+curl -X PUT \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '[
+       { "index": 0, "name": "Item Count" },
+       { "index": 1, "name": "Price", "description": "Unit price, pre-tax" }
+     ]' \
+     https://micro.crums.io/alice/sales/columns
+```
+
+**Response** — a JSON array, ordered by `index` ascending:
+
+```json
+[
+  { "index": 0, "name": "Item Count" },
+  { "index": 1, "name": "Price", "description": "Unit price, pre-tax" }
+]
+```
+
+| Field | Description |
+|---|---|
+| `index` | 0-based column position |
+| `name` | Human-readable column name |
+| `description` | Optional longer explanation (omitted if not set) |
+
+`PUT` is a full-list replace: indices not included in the request body are
+removed. Gaps in indices are allowed — not every column needs a name.
+
+**Error responses:**
+
+| HTTP | Condition |
+|---|---|
+| 401 | Missing or invalid Bearer token (`PUT` only) |
+| 404 | Chain not found |
+| 422 | Malformed body, blank `name`, negative `index`, or duplicate `index` |
 
 ---
 

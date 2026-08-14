@@ -25,6 +25,12 @@ public class ApiConstants {
   public static final String DESCRIPTION_KEY  = "description";
   public static final String SALT_SCHEME_KEY  = "salt_scheme";
 
+  // /{user}/{chain}/columns
+  public static final String COLUMNS_KEY             = "columns";
+  public static final String COLUMN_INDEX_KEY        = "index";
+  public static final String COLUMN_NAME_KEY         = "name";
+  public static final String COLUMN_DESCRIPTION_KEY  = "description";
+
   // /{user}/{chain}/info → salt_scheme object  (owned by SaltSchemeParser)
   public static final String SALT_CODE_KEY    = SaltSchemeParser.SALT_CODE_KEY;
   public static final String CELL_INDICES_KEY = SaltSchemeParser.CELL_INDICES_KEY;
