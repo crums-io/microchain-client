@@ -1,7 +1,7 @@
 # microchain-client
 
 Client-side tooling for committing rows from an on-premises SQL database into a
-remote [SkipLedger](../skipledger/) microchain hosted by a
+remote [SkipLedger](https://github.com/crums-io/skipledger) microchain hosted by a
 `microchain-webservices` instance.
 
 ## How it works
