@@ -167,8 +167,28 @@ public record DbConfig(
         o.jdbcProps.isEmpty()         ? jdbcProps          : o.jdbcProps);
   }
 
-  /** Loads all JDBC drivers from {@code jar} via a child JPMS module layer. */
+  // Cache: defineModulesWithOneLoader(..) creates a new ClassLoader (and thus
+  // reloads the driver's native library, e.g. sqlite-jdbc) on every call;
+  // keyed by absolute path so distinct jars still load independently.
+  private static final Map<Path, List<Driver>> DRIVER_JAR_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /** Loads (and caches, per jar) all JDBC drivers from {@code jar} via a child JPMS module layer. */
   private static List<Driver> loadDriversFromJar(Path jar) throws SQLException {
+    Path key = jar.toAbsolutePath().normalize();
+    List<Driver> cached = DRIVER_JAR_CACHE.get(key);
+    if (cached != null)
+      return cached;
+    synchronized (DRIVER_JAR_CACHE) {
+      cached = DRIVER_JAR_CACHE.get(key);
+      if (cached != null)
+        return cached;
+      List<Driver> drivers = loadDriversFromJarUncached(key);
+      DRIVER_JAR_CACHE.put(key, drivers);
+      return drivers;
+    }
+  }
+
+  private static List<Driver> loadDriversFromJarUncached(Path jar) throws SQLException {
     var moduleFinder = ModuleFinder.of(jar);
     var moduleNames  = moduleFinder.findAll().stream()
         .map(ModuleReference::descriptor)

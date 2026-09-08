@@ -568,7 +568,11 @@ public class Main implements Runnable {
           'row_count_query' field in --local-config, or the server's sql-config \
           (fetched with a bearer token when not available locally) — also connects \
           to the local database to report the source ledger's row count and how \
-          many rows are available to commit, factoring in 'default_lag' when configured."""
+          many rows are available to commit, factoring in 'default_lag' when configured.""",
+          "",
+          """
+          If --local-config defines multiple chains and --chain is omitted, prints \
+          the status of every chain in the file."""
       })
   static class StatusCommand implements Callable<Integer> {
 
@@ -620,75 +624,129 @@ public class Main implements Runnable {
 
     @Override
     public Integer call() throws Exception {
-      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
-      if (localCfg == null) return 1;
+      if (localConfigFile == null || opts.chainAlias != null) {
+        ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
+        if (localCfg == null) return 1;
 
-      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
-      if (effectiveUrl == null) {
-        System.err.println("ERROR: chain URL is required; pass as argument, or configure " +
-            "a resolvable chain_url (or --base-chain-url) in --local-config");
+        URI effectiveUrl = effectiveChainUrl(opts, localCfg);
+        if (effectiveUrl == null) {
+          System.err.println("ERROR: chain URL is required; pass as argument, or configure " +
+              "a resolvable chain_url (or --base-chain-url) in --local-config");
+          return 1;
+        }
+        return statusOne(effectiveUrl, localCfg, token, rowCountQueryOverride,
+            jdbcUrlOverride, jdbcDriverJarOverride, jdbcUser, jdbcPass);
+      }
+
+      // --local-config given, --chain omitted: single chain auto-selects (as before);
+      // multiple chains report status for every one of them.
+      LocalConfig cfg;
+      try {
+        cfg = LocalConfig.PARSER.toEntity(localConfigFile);
+      } catch (Exception e) {
+        System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
         return 1;
       }
-      ChainClient client = newClient(effectiveUrl);
-      var state = client.getState();
-      long committed = state.map(p -> p.hiRowNumber()).orElse(0L);
-      if (state.isEmpty()) {
-        System.out.println(effectiveUrl + "  No committed rows.");
-      } else {
-        System.out.println(effectiveUrl + "  Committed rows: " + committed);
+
+      List<String> aliases = new ArrayList<>(cfg.chainAliases());
+      if (aliases.isEmpty()) {
+        System.err.println("ERROR: '" + localConfigFile + "' has no chains configured; add one with 'mchain config " +
+            localConfigFile + " set --chain <alias> ...'");
+        return 1;
       }
 
-      // ── source row count / available-to-commit (best effort) ────────────────
-      String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
-
-      String rowCountQuery = rowCountQueryOverride != null
-          ? rowCountQueryOverride
-          : localCfg.sqlConfig().map(SqlConfig::rowCountQuery).orElse(null);
-
-      Optional<Long>     lagFromSqlCfg = localCfg.sqlConfig().flatMap(SqlConfig::defaultLag);
-      Optional<DbConfig> serverDb      = Optional.empty();
-
-      if (rowCountQuery == null && effectiveToken != null) {
-        // Queries are defined server-side; fetch sql-config (best effort).
+      boolean multi = aliases.size() > 1;
+      int failures = 0;
+      for (String alias : aliases) {
+        ChainConfig localCfg;
         try {
-          SqlConfig serverCfg = client.getSqlConfig(effectiveToken);
-          rowCountQuery = serverCfg.rowCountQuery();
-          serverDb = serverCfg.dbConfig();
-          if (lagFromSqlCfg.isEmpty())
-            lagFromSqlCfg = serverCfg.defaultLag();
-        } catch (Exception e) {
-          System.err.println("WARN: could not fetch sql-config from server: " + e.getMessage());
+          localCfg = cfg.resolve(alias);
+        } catch (java.util.NoSuchElementException e) {
+          System.err.println("ERROR: unknown chain '" + alias + "' (not in '" + localConfigFile + "')");
+          failures++;
+          continue;
         }
+        URI effectiveUrl = effectiveChainUrl(opts, localCfg);
+        if (effectiveUrl == null) {
+          System.err.println("ERROR: no chain_url resolvable for '" + alias +
+              "' — set it explicitly or add 'base_chain_url' to --local-config");
+          failures++;
+          continue;
+        }
+        if (multi) System.out.println("== " + alias + " ==");
+        int rc = statusOne(effectiveUrl, localCfg, token, rowCountQueryOverride,
+            jdbcUrlOverride, jdbcDriverJarOverride, jdbcUser, jdbcPass);
+        if (rc != 0) failures++;
+        if (multi) System.out.println();
       }
 
-      if (rowCountQuery == null)
-        return 0;
+      return failures > 0 ? 1 : 0;
+    }
+  }
 
-      DbConfig effectiveDb = effectiveDbConfig(serverDb, localCfg, jdbcUrlOverride, jdbcDriverJarOverride);
+  /** Prints the status (committed / source / available row counts) of one chain. */
+  private static int statusOne(URI effectiveUrl, ChainConfig localCfg, String token,
+      String rowCountQueryOverride, String jdbcUrlOverride, File jdbcDriverJarOverride,
+      String jdbcUser, char[] jdbcPass) throws Exception {
+    ChainClient client = newClient(effectiveUrl);
+    var state = client.getState();
+    long committed = state.map(p -> p.hiRowNumber()).orElse(0L);
+    if (state.isEmpty()) {
+      System.out.println(effectiveUrl + "  No committed rows.");
+    } else {
+      System.out.println(effectiveUrl + "  Committed rows: " + committed);
+    }
 
-      if (effectiveDb.jdbcUrl().isEmpty())
-        return 0;
+    // ── source row count / available-to-commit (best effort) ────────────────
+    String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
 
-      Properties props = cliJdbcProps(jdbcUser, jdbcPass);
+    String rowCountQuery = rowCountQueryOverride != null
+        ? rowCountQueryOverride
+        : localCfg.sqlConfig().map(SqlConfig::rowCountQuery).orElse(null);
 
-      long sourceRows;
-      try (Connection conn = effectiveDb.openConnection(props.isEmpty() ? null : props);
-           var stmt = conn.createStatement();
-           var rs   = stmt.executeQuery(rowCountQuery)) {
-        sourceRows = rs.next() ? rs.getLong(1) : 0L;
-      } catch (SQLException e) {
-        System.err.println("WARN: could not determine source row count: " + e.getMessage());
-        return 0;
+    Optional<Long>     lagFromSqlCfg = localCfg.sqlConfig().flatMap(SqlConfig::defaultLag);
+    Optional<DbConfig> serverDb      = Optional.empty();
+
+    if (rowCountQuery == null && effectiveToken != null) {
+      // Queries are defined server-side; fetch sql-config (best effort).
+      try {
+        SqlConfig serverCfg = client.getSqlConfig(effectiveToken);
+        rowCountQuery = serverCfg.rowCountQuery();
+        serverDb = serverCfg.dbConfig();
+        if (lagFromSqlCfg.isEmpty())
+          lagFromSqlCfg = serverCfg.defaultLag();
+      } catch (Exception e) {
+        System.err.println("WARN: could not fetch sql-config from server: " + e.getMessage());
       }
+    }
 
-      long lag = lagFromSqlCfg.orElse(0L);
-      long available = Math.max(0L, sourceRows - committed - lag);
+    if (rowCountQuery == null)
+      return 0;
 
-      System.out.println("Source rows    : " + sourceRows);
-      System.out.println("Available rows : " + available +
-          (lag > 0 ? " (after default lag of " + lag + ")" : ""));
+    DbConfig effectiveDb = effectiveDbConfig(serverDb, localCfg, jdbcUrlOverride, jdbcDriverJarOverride);
+
+    if (effectiveDb.jdbcUrl().isEmpty())
+      return 0;
+
+    Properties props = cliJdbcProps(jdbcUser, jdbcPass);
+
+    long sourceRows;
+    try (Connection conn = effectiveDb.openConnection(props.isEmpty() ? null : props);
+         var stmt = conn.createStatement();
+         var rs   = stmt.executeQuery(rowCountQuery)) {
+      sourceRows = rs.next() ? rs.getLong(1) : 0L;
+    } catch (SQLException e) {
+      System.err.println("WARN: could not determine source row count: " + e.getMessage());
       return 0;
     }
+
+    long lag = lagFromSqlCfg.orElse(0L);
+    long available = Math.max(0L, sourceRows - committed - lag);
+
+    System.out.println("Source rows    : " + sourceRows);
+    System.out.println("Available rows : " + available +
+        (lag > 0 ? " (after default lag of " + lag + ")" : ""));
+    return 0;
   }
 
 
