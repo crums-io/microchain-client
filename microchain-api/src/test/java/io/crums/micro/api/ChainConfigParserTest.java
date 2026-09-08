@@ -25,11 +25,11 @@ import io.crums.util.json.simple.JSONObject;
 
 
 /**
- * Roundtrip, structural, and wither tests for {@link LocalConfig.Parser}.
+ * Roundtrip, structural, and wither tests for {@link LocalConfig.ChainConfig.Parser}.
  */
-public class LocalConfigParserTest extends IoTestCase {
+public class ChainConfigParserTest extends IoTestCase {
 
-  private static final LocalConfig.Parser PARSER = LocalConfig.PARSER;
+  private static final LocalConfig.ChainConfig.Parser PARSER = LocalConfig.ChainConfig.PARSER;
 
 
   // ── helpers ───────────────────────────────────────────────────────────────
@@ -49,9 +49,9 @@ public class LocalConfigParserTest extends IoTestCase {
     }
   }
 
-  private static void assertRoundtrip(LocalConfig cfg) {
+  private static void assertRoundtrip(LocalConfig.ChainConfig cfg) {
     JSONObject jObj  = PARSER.toJsonObject(cfg);
-    LocalConfig cfg2 = PARSER.toEntity(jObj);
+    LocalConfig.ChainConfig cfg2 = PARSER.toEntity(jObj);
     assertEquals(cfg.accessToken(),   cfg2.accessToken());
     assertEquals(cfg.sqlConfig(),     cfg2.sqlConfig());
     assertEquals(cfg.looseDbConfig(), cfg2.looseDbConfig());
@@ -73,14 +73,14 @@ public class LocalConfigParserTest extends IoTestCase {
 
   @Test
   public void testRoundtrip_empty() {
-    assertRoundtrip(LocalConfig.EMPTY);
-    assertTrue(PARSER.toJsonObject(LocalConfig.EMPTY).isEmpty(),
+    assertRoundtrip(LocalConfig.ChainConfig.EMPTY);
+    assertTrue(PARSER.toJsonObject(LocalConfig.ChainConfig.EMPTY).isEmpty(),
         "EMPTY serializes to empty JSON object");
   }
 
   @Test
   public void testRoundtrip_accessToken() {
-    LocalConfig cfg = LocalConfig.EMPTY.withAccessToken("mcw_abc123");
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withAccessToken("mcw_abc123");
     assertRoundtrip(cfg);
     JsonPrinter.println(PARSER.toJsonObject(cfg));
   }
@@ -89,7 +89,7 @@ public class LocalConfigParserTest extends IoTestCase {
   public void testRoundtrip_sqlConfigMinimal() {
     SqlConfig sql = new SqlConfig(BY_NO, COUNT,
         Optional.empty(), Optional.empty(), Optional.empty());
-    LocalConfig cfg = LocalConfig.EMPTY.withSqlConfig(sql);
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSqlConfig(sql);
     assertRoundtrip(cfg);
     assertTrue(cfg.sqlConfig().isPresent());
     assertTrue(cfg.looseDbConfig().isEmpty());
@@ -105,7 +105,7 @@ public class LocalConfigParserTest extends IoTestCase {
             Map.of())),
         Optional.of("America/New_York"),
         Optional.of(5L));
-    LocalConfig cfg = LocalConfig.EMPTY
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
         .withAccessToken("mcw_tok")
         .withSqlConfig(sql);
     assertRoundtrip(cfg);
@@ -119,7 +119,7 @@ public class LocalConfigParserTest extends IoTestCase {
         Optional.of("org.h2.Driver"),
         Optional.empty(),
         Map.of());
-    LocalConfig cfg = LocalConfig.EMPTY.withDbConfig(db);
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withDbConfig(db);
     assertRoundtrip(cfg);
     assertTrue(cfg.looseDbConfig().isPresent());
     assertTrue(cfg.sqlConfig().isEmpty());
@@ -128,14 +128,14 @@ public class LocalConfigParserTest extends IoTestCase {
 
   @Test
   public void testRoundtrip_singleSaltEpoch() {
-    LocalConfig cfg = LocalConfig.EMPTY
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
         .withSaltEpochs(List.of(new EpochSeed(1L, seed(0xAB))));
     assertRoundtrip(cfg);
   }
 
   @Test
   public void testRoundtrip_multipleEpochs() {
-    LocalConfig cfg = LocalConfig.EMPTY.withSaltEpochs(List.of(
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltEpochs(List.of(
         new EpochSeed(  1L, seed(0x11)),
         new EpochSeed(1001L, seed(0x22))));
     assertRoundtrip(cfg);
@@ -147,7 +147,7 @@ public class LocalConfigParserTest extends IoTestCase {
         Optional.of(DbConfig.EMPTY.withJdbcUrl("jdbc:postgresql://db:5432/mydb")),
         Optional.of("UTC"),
         Optional.of(3L));
-    LocalConfig cfg = LocalConfig.EMPTY
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
         .withAccessToken("mcw_full")
         .withSqlConfig(sql)
         .withSaltEpochs(List.of(new EpochSeed(1L, seed(0xFF))));
@@ -164,7 +164,7 @@ public class LocalConfigParserTest extends IoTestCase {
     JSONObject jObj = new JSONObject();
     jObj.put(JDBC_URL_KEY, "jdbc:h2:mem:partial");
 
-    LocalConfig cfg = PARSER.toEntity(jObj);
+    LocalConfig.ChainConfig cfg = PARSER.toEntity(jObj);
     assertTrue(cfg.sqlConfig().isEmpty(),       "no sqlConfig when queries absent");
     assertTrue(cfg.looseDbConfig().isPresent(), "jdbc_url alone → looseDbConfig");
     assertEquals("jdbc:h2:mem:partial",
@@ -177,7 +177,7 @@ public class LocalConfigParserTest extends IoTestCase {
     JSONObject jObj = new JSONObject();
     jObj.put(JDBC_DRIVER_CLASS_KEY, "org.h2.Driver");
 
-    LocalConfig cfg = PARSER.toEntity(jObj);
+    LocalConfig.ChainConfig cfg = PARSER.toEntity(jObj);
     assertTrue(cfg.sqlConfig().isEmpty());
     assertTrue(cfg.looseDbConfig().isPresent());
     assertTrue(cfg.looseDbConfig().get().jdbcUrl().isEmpty());
@@ -193,7 +193,7 @@ public class LocalConfigParserTest extends IoTestCase {
     jObj.put(ROW_COUNT_QUERY_KEY, COUNT);
     jObj.put(JDBC_URL_KEY, "jdbc:h2:mem:test");
 
-    LocalConfig cfg = PARSER.toEntity(jObj);
+    LocalConfig.ChainConfig cfg = PARSER.toEntity(jObj);
     assertTrue(cfg.sqlConfig().isPresent(),   "sqlConfig when queries present");
     assertTrue(cfg.looseDbConfig().isEmpty(), "no looseDbConfig when sqlConfig present");
     assertEquals("jdbc:h2:mem:test",
@@ -208,7 +208,7 @@ public class LocalConfigParserTest extends IoTestCase {
     // withDbConfig() updates within sqlConfig when it is already present
     SqlConfig sql = new SqlConfig(BY_NO, COUNT,
         Optional.empty(), Optional.empty(), Optional.empty());
-    LocalConfig cfg = LocalConfig.EMPTY.withSqlConfig(sql)
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSqlConfig(sql)
         .withDbConfig(DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:x"));
 
     assertTrue(cfg.sqlConfig().isPresent());
@@ -218,7 +218,7 @@ public class LocalConfigParserTest extends IoTestCase {
 
   @Test
   public void testWithDbConfig_storesLooseWhenNoSqlConfig() {
-    LocalConfig cfg = LocalConfig.EMPTY
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
         .withDbConfig(DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:loose"));
 
     assertTrue(cfg.sqlConfig().isEmpty());
@@ -229,11 +229,11 @@ public class LocalConfigParserTest extends IoTestCase {
   @Test
   public void testWithSqlConfig_clearsLooseDbConfig() {
     // looseDbConfig is discarded once a full SqlConfig is set
-    LocalConfig before = LocalConfig.EMPTY
+    LocalConfig.ChainConfig before = LocalConfig.ChainConfig.EMPTY
         .withDbConfig(DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:y"));
     assertTrue(before.looseDbConfig().isPresent());
 
-    LocalConfig after = before.withSqlConfig(
+    LocalConfig.ChainConfig after = before.withSqlConfig(
         new SqlConfig(BY_NO, COUNT, Optional.empty(), Optional.empty(), Optional.empty()));
     assertTrue(after.sqlConfig().isPresent());
     assertTrue(after.looseDbConfig().isEmpty());
@@ -243,13 +243,13 @@ public class LocalConfigParserTest extends IoTestCase {
   public void testDbConfigResolver() {
     // dbConfig() resolves from sqlConfig when present; falls back to looseDbConfig
     DbConfig loose = DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:loose");
-    LocalConfig withLoose = LocalConfig.EMPTY.withDbConfig(loose);
+    LocalConfig.ChainConfig withLoose = LocalConfig.ChainConfig.EMPTY.withDbConfig(loose);
     assertEquals(Optional.of(loose), withLoose.dbConfig());
 
     SqlConfig sql = new SqlConfig(BY_NO, COUNT,
         Optional.of(DbConfig.EMPTY.withJdbcUrl("jdbc:h2:mem:sql")),
         Optional.empty(), Optional.empty());
-    LocalConfig withSql = LocalConfig.EMPTY.withSqlConfig(sql);
+    LocalConfig.ChainConfig withSql = LocalConfig.ChainConfig.EMPTY.withSqlConfig(sql);
     assertEquals(sql.dbConfig(), withSql.dbConfig());
   }
 
@@ -258,7 +258,7 @@ public class LocalConfigParserTest extends IoTestCase {
 
   @Test
   public void testRoundtrip_saltSchemeAll() {
-    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(SaltScheme.SALT_ALL);
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(SaltScheme.SALT_ALL);
     assertRoundtrip(cfg);
     // Verify the JSON contains a salt_scheme object
     JSONObject jObj = PARSER.toJsonObject(cfg);
@@ -269,7 +269,7 @@ public class LocalConfigParserTest extends IoTestCase {
   @Test
   public void testRoundtrip_saltSchemeNone() {
     // Explicit NO_SALT (as opposed to absent saltScheme)
-    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(SaltScheme.NO_SALT);
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(SaltScheme.NO_SALT);
     assertRoundtrip(cfg);
     JSONObject jObj = PARSER.toJsonObject(cfg);
     assertTrue(jObj.containsKey(SALT_SCHEME_KEY), "salt_scheme key present");
@@ -279,7 +279,7 @@ public class LocalConfigParserTest extends IoTestCase {
   public void testRoundtrip_saltSchemeOnlySome() {
     // "none except 1,3" — only columns 1 and 3 are salted (positive, non-empty)
     SaltScheme scheme = SaltScheme.of(1, 3);
-    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(scheme);
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(scheme);
     assertRoundtrip(cfg);
     JsonPrinter.println(PARSER.toJsonObject(cfg));
   }
@@ -288,7 +288,7 @@ public class LocalConfigParserTest extends IoTestCase {
   public void testRoundtrip_saltSchemeAllExcept() {
     // "all except 0,2" — all salted except columns 0 and 2 (negative, non-empty)
     SaltScheme scheme = SaltScheme.ofAllExcept(0, 2);
-    LocalConfig cfg = LocalConfig.EMPTY.withSaltScheme(scheme);
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(scheme);
     assertRoundtrip(cfg);
     JsonPrinter.println(PARSER.toJsonObject(cfg));
   }
@@ -298,7 +298,7 @@ public class LocalConfigParserTest extends IoTestCase {
     // Salt scheme alongside salt epochs — the combo needed for fully offline rows
     SaltScheme scheme = SaltScheme.SALT_ALL;
     List<EpochSeed> epochs = List.of(new EpochSeed(1L, seed(0xAB)));
-    LocalConfig cfg = LocalConfig.EMPTY
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
         .withSaltScheme(scheme)
         .withSaltEpochs(epochs);
     assertRoundtrip(cfg);
@@ -309,7 +309,7 @@ public class LocalConfigParserTest extends IoTestCase {
   @Test
   public void testAbsentSaltSchemeNotSerialized() {
     // When saltScheme is absent, no salt_scheme key should appear in JSON
-    JSONObject jObj = PARSER.toJsonObject(LocalConfig.EMPTY);
+    JSONObject jObj = PARSER.toJsonObject(LocalConfig.ChainConfig.EMPTY);
     assertFalse(jObj.containsKey(SALT_SCHEME_KEY), "no salt_scheme key when absent");
   }
 
@@ -328,7 +328,7 @@ public class LocalConfigParserTest extends IoTestCase {
     File cfgFile = new File(dir, "local-config.json");
     Files.writeString(cfgFile.toPath(), JsonPrinter.toJson(jObj));
 
-    LocalConfig cfg = PARSER.toEntity(cfgFile);
+    LocalConfig.ChainConfig cfg = PARSER.toEntity(cfgFile);
 
     Path jar = cfg.dbConfig()
         .flatMap(DbConfig::jdbcDriverJar)
@@ -351,7 +351,7 @@ public class LocalConfigParserTest extends IoTestCase {
     File cfgFile = new File(dir, "local-config.json");
     Files.writeString(cfgFile.toPath(), JsonPrinter.toJson(jObj));
 
-    LocalConfig cfg = PARSER.toEntity(cfgFile);
+    LocalConfig.ChainConfig cfg = PARSER.toEntity(cfgFile);
 
     assertTrue(cfg.sqlConfig().isPresent(), "sqlConfig should be present");
     Path jar = cfg.sqlConfig().get().dbConfig()

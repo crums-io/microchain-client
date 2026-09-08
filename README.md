@@ -43,8 +43,9 @@ Both tools share the same options.  Run with `--help` for the full list.
 
 ```
 <chain-url>              Full chain URL: https://micro.crums.io/{user}/{chain}
---token, -t <token>      Bearer access token (may be omitted when --local-config supplies it)
+--token, -t <token>      Bearer access token (may be omitted when --local-config resolves it)
 --local-config, -c <file>  Local JSON config file (see below)
+--chain <alias>          Select a chain from --local-config's 'chains' object (see below)
 --jdbc-url <url>         JDBC connection URL (overrides server config and local-config value)
 --jdbc-user <user>       JDBC username
 --jdbc-pass [<pass>]     JDBC password (omit value to be prompted interactively)
@@ -71,10 +72,14 @@ key (relative paths are resolved against the config file's directory):
 
 ```json
 {
-  "jdbc_url":        "jdbc:sqlite:/data/sales.db",
-  "jdbc_driver_jar": "drivers/sqlite-jdbc-3.50.3.0.jar",
-  "by_no_query":     "SELECT amt, ts FROM sales_ledger WHERE rn = ?",
-  "row_count_query": "SELECT MAX(rn) FROM sales_ledger"
+  "chains": {
+    "sales": {
+      "jdbc_url":        "jdbc:sqlite:/data/sales.db",
+      "jdbc_driver_jar": "drivers/sqlite-jdbc-3.50.3.0.jar",
+      "by_no_query":     "SELECT amt, ts FROM sales_ledger WHERE rn = ?",
+      "row_count_query": "SELECT MAX(rn) FROM sales_ledger"
+    }
+  }
 }
 ```
 
@@ -136,21 +141,30 @@ process listings.  Storing them in a file (with `chmod 600`) avoids that exposur
 
 #### File format
 
-A JSON object combining the fields from `GET /sql-config` and `GET /salts`, plus an
-`access_token` field.  All fields are optional — absent ones are fetched from the
-server as normal.
+A JSON object with a top-level `chains` object holding one entry per chain,
+keyed by a short local alias — each entry combines the fields from `GET
+/sql-config` and `GET /salts`, plus an `access_token` field, for that chain.
+A lone chain is simply a file with a single entry under `chains`; `mchain`
+auto-selects it whenever the file has exactly one chain configured, so
+`--chain <alias>` is only needed once a file holds more than one (see
+[Multiple related chains](#multiple-related-chains) below).  All fields are
+optional — absent ones are fetched from the server as normal.
 
 **Fully configured — unsalted chain:**
 
 ```json
 {
-  "access_token":      "mcw_...",
-  "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
-  "row_count_query":   "SELECT  MAX(row_no) FROM sales",
-  "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
-  "jdbc_driver_class": "org.postgresql.Driver",
-  "timezone":          "America/New_York",
-  "default_lag":       5
+  "chains": {
+    "sales": {
+      "access_token":      "mcw_...",
+      "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
+      "row_count_query":   "SELECT  MAX(row_no) FROM sales",
+      "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
+      "jdbc_driver_class": "org.postgresql.Driver",
+      "timezone":          "America/New_York",
+      "default_lag":       5
+    }
+  }
 }
 ```
 
@@ -159,16 +173,20 @@ server as normal.
 
 ```json
 {
-  "access_token":      "mcw_...",
-  "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
-  "row_count_query":   "SELECT MAX(row_no) FROM sales",
-  "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
-  "jdbc_driver_class": "org.postgresql.Driver",
-  "timezone":          "America/New_York",
-  "default_lag":       5,
-  "salts": [
-    { "seedStart": 1, "seed": "<43-char Base64_32>" }
-  ]
+  "chains": {
+    "sales": {
+      "access_token":      "mcw_...",
+      "by_no_query":       "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?",
+      "row_count_query":   "SELECT MAX(row_no) FROM sales",
+      "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
+      "jdbc_driver_class": "org.postgresql.Driver",
+      "timezone":          "America/New_York",
+      "default_lag":       5,
+      "salts": [
+        { "seedStart": 1, "seed": "<43-char Base64_32>" }
+      ]
+    }
+  }
 }
 ```
 
@@ -187,14 +205,104 @@ chmod 600 ~/.config/crums/sales.json
 | Priority | Source |
 |---|---|
 | 1 (highest) | CLI flag (`--token`, `--jdbc-url`, `--timezone`, `--lag`, …) |
-| 2 | Local config file |
-| 3 | Server response (`GET /sql-config`, `GET /salts`) |
+| 2 | The selected chain's own field (see `--chain`) |
+| 3 | The file's shared default of the same name (see below) |
+| 4 | Server response (`GET /sql-config`, `GET /salts`) |
 
-When the file supplies `by_no_query` + `row_count_query`, the `GET /sql-config` call
-is skipped entirely.  When the file supplies a `salts` array, `GET /salts` is skipped.
+When the selected chain resolves `by_no_query` + `row_count_query`, the
+`GET /sql-config` call is skipped entirely.  When it resolves a `salts`
+array, `GET /salts` is skipped.
 
-Note the file also supports a `chain_url` setting. When set, the command line
-argument (chain URL) need not be supplied. 
+A chain's own `chain_url` field lets the `<chain-url>` CLI argument be
+omitted; see `--base-chain-url` below for inferring it instead.
+
+#### Multiple related chains
+
+Related chains — e.g. `orders` and `order_items`, backed by tables in the same
+database — often share a JDBC connection and sometimes a bearer token. Rather
+than repeating those fields in every entry, set them once at the file's top
+level as **shared defaults** that any chain not overriding them falls back to:
+
+```json
+{
+  "base_chain_url":    "https://micro.crums.io/bikeshop",
+  "jdbc_url":          "jdbc:postgresql://db.example.com:5432/mydb",
+  "jdbc_driver_class": "org.postgresql.Driver",
+  "access_token":      "mcw_...",
+
+  "chains": {
+    "orders": {
+      "by_no_query":     "SELECT customer_id, order_date AS Date FROM orders WHERE order_id = ?",
+      "row_count_query": "SELECT MAX(order_id) FROM orders"
+    },
+    "order_items": {
+      "by_no_query":     "SELECT order_id, item_count AS Count, unit_price AS Price FROM sale_items WHERE sale_item_id = ?",
+      "row_count_query": "SELECT MAX(sale_item_id) FROM sale_items"
+    },
+    "customers": {
+      "chain_url":   "https://micro.crums.io/accounts/customers",
+      "access_token": "mcw_different_token",
+      "by_no_query":     "SELECT name FROM customers WHERE customer_id = ?",
+      "row_count_query": "SELECT MAX(customer_id) FROM customers"
+    }
+  }
+}
+```
+
+A chain's own field always wins over the shared default of the same name
+(the `customers` entry above overrides both `chain_url` and `access_token`).
+A chain's `chain_url` is inferred as `base_chain_url + "/" + <alias>` when
+the chain doesn't set its own — so `orders` above resolves to
+`https://micro.crums.io/bikeshop/orders` for free. A `{}` entry is valid: it
+means "no local overrides for this chain," everything comes from the shared
+defaults, CLI flags, or the server.
+
+Build the file incrementally with `--chain <alias>` on `mchain config ...
+set`:
+
+```sh
+mchain config sales.json set --base-chain-url https://micro.crums.io/bikeshop
+mchain config sales.json set --jdbc-url jdbc:postgresql://db.example.com:5432/mydb
+mchain config sales.json set --token mcw_...
+mchain config sales.json set --chain orders \
+    --by-no-query "SELECT customer_id, order_date AS Date FROM orders WHERE order_id = ?" \
+    --row-count-query "SELECT MAX(order_id) FROM orders"
+mchain config sales.json set --chain order_items \
+    --by-no-query "SELECT order_id, item_count AS Count, unit_price AS Price FROM sale_items WHERE sale_item_id = ?" \
+    --row-count-query "SELECT MAX(sale_item_id) FROM sale_items"
+```
+
+Every option `mchain config set` supports works the same way under `--chain`
+(`--salt-seed`, `--jdbc-props`, etc.) — it's applied to that chain's entry
+instead of the file's top level. Fields that are inherently per-chain
+(`--chain-url`, `--by-no-query`, `--row-count-query`, `--salt-seed`,
+`--salt-scheme`) require `--chain`; `--base-chain-url` always applies at the
+top level, regardless of `--chain`.
+
+With more than one chain configured, most commands need `--chain <alias>` to
+say which one to operate on:
+
+```sh
+mchain status  --local-config sales.json --chain orders
+mchain rows    --local-config sales.json --chain orders --row 1 --pretty
+mchain commit  --local-config sales.json --chain orders
+```
+
+Or commit every chain in the file in one go with `mchain commit-all`:
+
+```sh
+mchain commit-all -c sales.json
+mchain commit-all -c sales.json --only orders,order_items   # skip customers
+mchain commit-all -c sales.json --lag 5                     # applied to every chain
+```
+
+`commit-all` runs the same commit logic as `mchain commit`, once per chain,
+printing a `== <alias> ==` heading before each and continuing past a failed
+chain rather than aborting the batch; the exit code is non-zero if any chain
+failed. There's no cryptographic requirement that related chains be committed
+together — each chain's commitment path is verified independently — so this
+is purely an operational convenience over invoking `mchain commit` once per
+chain.
 
 ### Designing and setting up a microchain
 
@@ -210,9 +318,9 @@ unchanged, so the file can be built up incrementally across these steps.
    ```sh
    mchain config ~/.config/crums/sales.json set \
        --jdbc-url jdbc:postgresql://db.example.com:5432/mydb
-   mchain config ~/.config/crums/sales.json set \
+   mchain config ~/.config/crums/sales.json set --chain sales \
        --by-no-query "SELECT item_count, price, txn_date FROM sales WHERE row_no = ?"
-   mchain config ~/.config/crums/sales.json set \
+   mchain config ~/.config/crums/sales.json set --chain sales \
        --row-count-query "SELECT MAX(row_no) FROM sales"
    ```
 
@@ -244,7 +352,7 @@ unchanged, so the file can be built up incrementally across these steps.
 4. **Set the chain URL** in the config file, then confirm it resolves:
 
    ```sh
-   mchain config ~/.config/crums/sales.json set \
+   mchain config ~/.config/crums/sales.json set --chain sales \
        --chain-url https://micro.crums.io/alice/sales
    mchain status -c ~/.config/crums/sales.json
    ```
@@ -257,8 +365,8 @@ unchanged, so the file can be built up incrementally across these steps.
    registering) can instead set the scheme and seed locally:
 
    ```sh
-   mchain config ~/.config/crums/sales.json set --salt-scheme all
-   mchain config ~/.config/crums/sales.json set --salt-seed
+   mchain config ~/.config/crums/sales.json set --chain sales --salt-scheme all
+   mchain config ~/.config/crums/sales.json set --chain sales --salt-seed
    ```
 
    `--salt-scheme` follows the `<base>[:<except-indices>]` format (`all`,

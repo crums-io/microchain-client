@@ -31,7 +31,7 @@ import io.crums.util.json.simple.JSONObject;
  * optional connection properties (e.g. {@code user}, {@code password}).
  *
  * <p>Extracted from {@link SqlConfig} so that the connection details can be
- * carried independently — in particular, a {@link LocalConfig} may hold a
+ * carried independently — in particular, a {@link LocalConfig.ChainConfig} may hold a
  * {@code DbConfig} before its SQL queries are known (the partial / dry-run
  * setup state).</p>
  *

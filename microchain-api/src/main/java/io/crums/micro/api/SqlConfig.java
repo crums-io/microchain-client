@@ -24,7 +24,7 @@ import io.crums.util.json.simple.JSONObject;
  * <p>Maps to {@code ConfigResponse} in {@code SqlLedgerConfigResource}.
  * The JDBC connection details are grouped in an optional {@link DbConfig};
  * if not recorded server-side they must be supplied locally (via
- * {@link LocalConfig} or the {@code --jdbc-url} flag).</p>
+ * {@link LocalConfig.ChainConfig} or the {@code --jdbc-url} flag).</p>
  *
  * <h2>Opening an SqlLedger</h2>
  * <pre>{@code

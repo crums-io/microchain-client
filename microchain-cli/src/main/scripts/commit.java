@@ -12,7 +12,7 @@
 //
 // Usage:
 //   jbang run --deps <group:artifact:version> microchain-cli/src/main/scripts/commit.java \
-//       <chain-url> [--token <t>] [--local-config <file>] \
+//       <chain-url> [--token <t>] [--local-config <file>] [--chain <alias>] \
 //       [--jdbc-url <url>] [--jdbc-driver-jar <jar>] \
 //       [--jdbc-user <user>] [--jdbc-pass <pass>] [--batch <n>] \
 //       [--timezone <tz>] [--from <n>] [--to <n>] [--lag <n>]
@@ -26,11 +26,12 @@
 //       --jdbc-user alice \
 //       --jdbc-pass secret
 //
-// Example (all sensitive values in a local config file):
+// Example (all sensitive values in a local config file; --chain may be
+// omitted when the file has exactly one chain configured):
 //   jbang run --deps org.postgresql:postgresql:42.7.3 \
 //       microchain-cli/src/main/scripts/commit.java \
 //       http://localhost:8081/alice/sales \
-//       --local-config ~/.config/crums/sales.json
+//       --local-config ~/.config/crums/sales.json --chain sales
 
 //REPOS mavenCentral,mavenLocal
 //DEPS io.crums:microchain-http:0.1.0-SNAPSHOT
@@ -40,6 +41,7 @@ import io.crums.micro.api.ChainInfo;
 import io.crums.micro.api.CommitRequest;
 import io.crums.micro.api.DbConfig;
 import io.crums.micro.api.LocalConfig;
+import io.crums.micro.api.LocalConfig.ChainConfig;
 import io.crums.micro.api.SqlConfig;
 import io.crums.micro.http.ChainClient;
 import io.crums.sldg.HashConflictException;
@@ -96,18 +98,27 @@ class commit implements Callable<Integer> {
 
   @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
       description = {
-          "JSON file supplying local config: access_token, sql-config fields,",
-          "and/or salts array. Fields present here are used instead of fetching",
-          "from the server. CLI flags (--token, --jdbc-url, etc.) take precedence.",
+          "Local JSON config file supplying local config: access_token, sql-config",
+          "fields, and/or salts array, per chain (see --chain). Fields present",
+          "here are used instead of fetching from the server. CLI flags",
+          "(--token, --jdbc-url, etc.) take precedence.",
           "Recommended for sensitive values (token, salt seeds) to keep them out",
           "of shell history."
       })
   File localConfigFile;
 
+  @Option(names = {"--chain"}, paramLabel = "<alias>",
+      description = {
+          "Select this chain from the --local-config file's 'chains'",
+          "object. May be omitted when the file has exactly one chain",
+          "configured; required when it has more than one."
+      })
+  String chainAlias;
+
   @Option(names = {"--token", "-t"},
       description = {
           "Bearer access token.",
-          "May be omitted when --local-config provides an 'access_token' field."
+          "May be omitted when --local-config resolves an 'access_token' field."
       })
   String token;
 
@@ -180,6 +191,55 @@ class commit implements Callable<Integer> {
     System.exit(new CommandLine(new commit()).execute(args));
   }
 
+  /**
+   * Loads {@code localConfigFile} (if given) as a {@link LocalConfig} and
+   * resolves the single chain to operate on: {@code chainAlias} when given,
+   * else the file's sole chain when it has exactly one.
+   *
+   * <p>Returns {@link ChainConfig#EMPTY} when {@code localConfigFile} is
+   * {@code null} ({@code chainAlias} must then also be null). On any
+   * failure — unreadable file, unknown alias, or an empty/ambiguous set of
+   * chains when no alias was given — prints an {@code ERROR:} line and
+   * returns {@code null}.</p>
+   */
+  private static ChainConfig resolveLocalConfig(File localConfigFile, String chainAlias) {
+    if (localConfigFile == null) {
+      if (chainAlias != null) {
+        System.err.println("ERROR: --chain requires --local-config");
+        return null;
+      }
+      return ChainConfig.EMPTY;
+    }
+    LocalConfig cfg;
+    try {
+      cfg = LocalConfig.PARSER.toEntity(localConfigFile);
+    } catch (JsonParsingException | UncheckedIOException e) {
+      System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
+      return null;
+    }
+    String alias = chainAlias;
+    if (alias == null) {
+      var aliases = cfg.chainAliases();
+      if (aliases.size() == 1) {
+        alias = aliases.iterator().next();
+      } else if (aliases.isEmpty()) {
+        System.err.println("ERROR: '" + localConfigFile + "' has no chains configured; " +
+            "add one with 'mchain config " + localConfigFile + " set --chain <alias> ...'");
+        return null;
+      } else {
+        System.err.println("ERROR: '" + localConfigFile + "' has multiple chains " + aliases +
+            "; select one with --chain <alias>");
+        return null;
+      }
+    }
+    try {
+      return cfg.resolve(alias);
+    } catch (java.util.NoSuchElementException e) {
+      System.err.println("ERROR: unknown chain '" + alias + "' (not in '" + localConfigFile + "')");
+      return null;
+    }
+  }
+
   static class VersionProvider implements IVersionProvider {
     @Override
     public String[] getVersion() throws Exception {
@@ -218,15 +278,8 @@ class commit implements Callable<Integer> {
     }
 
     // ── load local config (if provided) ────────────────────────────────────
-    LocalConfig localCfg = LocalConfig.EMPTY;
-    if (localConfigFile != null) {
-      try {
-        localCfg = LocalConfig.PARSER.toEntity(localConfigFile);
-      } catch (JsonParsingException | UncheckedIOException e) {
-        System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
-        return 1;
-      }
-    }
+    ChainConfig localCfg = resolveLocalConfig(localConfigFile, chainAlias);
+    if (localCfg == null) return 1;
 
     // CLI --token wins; fall back to file's access_token
     String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);

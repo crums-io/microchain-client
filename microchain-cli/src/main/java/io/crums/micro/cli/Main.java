@@ -13,7 +13,9 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -30,6 +32,7 @@ import io.crums.micro.api.ColumnInfo;
 import io.crums.micro.api.CommitRequest;
 import io.crums.micro.api.DbConfig;
 import io.crums.micro.api.LocalConfig;
+import io.crums.micro.api.LocalConfig.ChainConfig;
 import io.crums.micro.api.SqlConfig;
 import io.crums.micro.http.ChainClient;
 import io.crums.sldg.HashConflictException;
@@ -72,6 +75,7 @@ import picocli.CommandLine.Parameters;
     name = "mchain",
     subcommands = {
         Main.CommitCommand.class,
+        Main.CommitAllCommand.class,
         Main.StatusCommand.class,
         Main.InfoCommand.class,
         Main.RowsCommand.class,
@@ -102,9 +106,17 @@ public class Main implements Runnable {
         description = {
             "Full chain URL: <server>/{user}/{chain}",
             "  e.g. https://micro.crums.io/alice/sales",
-            "May be omitted when --local-config supplies a 'chain_url' field."
+            "May be omitted when --local-config resolves a chain_url (see --chain)."
         })
     URI chainUrl;
+
+    @Option(names = {"--chain"}, paramLabel = "<alias>",
+        description = {
+            "Select this chain from the --local-config file's 'chains'",
+            "object.  May be omitted when the file has exactly one chain",
+            "configured; required when it has more than one."
+        })
+    String chainAlias;
 
     // Subcommands handle --help themselves; -V belongs only on the root command.
     @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
@@ -134,9 +146,10 @@ public class Main implements Runnable {
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
         description = {
             """
-            JSON file supplying local config: access_token, sql-config fields, \
-            and/or salts array. Fields present here are used instead of fetching \
-            from the server. CLI flags (--token, --jdbc-url, etc.) take precedence.""",
+            Local JSON config file supplying local config: access_token, sql-config \
+            fields, and/or salts array, per chain (see --chain). Fields present \
+            here are used instead of fetching from the server. CLI flags \
+            (--token, --jdbc-url, etc.) take precedence.""",
             """
             Recommended for sensitive values (token, salt seeds) to keep them out \
             of shell history."""
@@ -146,7 +159,7 @@ public class Main implements Runnable {
     @Option(names = {"--token", "-t"},
         description = {
             "Bearer access token.",
-            "May be omitted when --local-config provides an 'access_token' field."
+            "May be omitted when --local-config resolves an 'access_token' field."
         })
     String token;
 
@@ -245,22 +258,34 @@ public class Main implements Runnable {
       }
 
       // ── load local config (if provided) ──────────────────────────────────────
-      LocalConfig localCfg = LocalConfig.EMPTY;
-      if (localConfigFile != null) {
-        try {
-          localCfg = LocalConfig.PARSER.toEntity(localConfigFile);
-        } catch (JsonParsingException | UncheckedIOException e) {
-          System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
-          return 1;
-        }
-      }
+      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
+      if (localCfg == null) return 1;
 
       // CLI chain-url wins; fall back to local config
-      URI effectiveUrl = resolveChainUrl(opts, localConfigFile);
+      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
       if (effectiveUrl == null) {
-        System.err.println("ERROR: chain URL required; pass as argument or add 'chain_url' to --local-config");
+        System.err.println("ERROR: chain URL required; pass as argument, or configure " +
+            "a resolvable chain_url (or --base-chain-url) in --local-config");
         return 1;
       }
+
+      return commitOne(effectiveUrl, localCfg, token, jdbcUrlOverride, jdbcDriverJarOverride,
+          jdbcUser, jdbcPass, batch, timezoneOverride, fromOverride, toOverride, lagOverride);
+    }
+  }
+
+  /**
+   * Commits new rows for a single chain — the shared body of {@code mchain commit}
+   * and each iteration of {@code mchain commit-all}. {@code localCfg} supplies
+   * whatever fields are locally known (access token, sql-config, salts); anything
+   * absent is fetched from the server. CLI-flag parameters, when non-null, take
+   * precedence over both.
+   */
+  private static int commitOne(
+      URI effectiveUrl, ChainConfig localCfg, String token,
+      String jdbcUrlOverride, File jdbcDriverJarOverride,
+      String jdbcUser, char[] jdbcPass, int batch, String timezoneOverride,
+      Long fromOverride, Long toOverride, Long lagOverride) throws Exception {
 
       // CLI --token wins; fall back to file's access_token
       String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
@@ -366,7 +391,6 @@ public class Main implements Runnable {
         return 1;
       }
       return 0;
-    }
   }
 
   /**
@@ -380,6 +404,155 @@ public class Main implements Runnable {
     if (added == 0)
       return "  (" + replayed + " replayed)";
     return "  (" + replayed + " replayed, " + added + " new)";
+  }
+
+
+  // ── commit-all ──────────────────────────────────────────────────────────────
+
+  @Command(
+      name = "commit-all",
+      description = {
+          "Commit new rows for every chain in a local config file.",
+          "",
+          """
+          The local config file groups several related chains — e.g. chains backed \
+          by tables in the same database — under a top-level 'chains' object, keyed \
+          by a short local alias, plus shared defaults (jdbc_url, access_token, \
+          timezone, default_lag, ...) that apply to any chain that doesn't set its \
+          own.""",
+          "",
+          """
+          A chain's own 'chain_url' wins if set; otherwise it's inferred as \
+          'base_chain_url' + '/' + the chain's alias.  Example:""",
+          "",
+          "  {",
+          "    \"base_chain_url\": \"https://micro.crums.io/bikeshop\",",
+          "    \"jdbc_url\":       \"jdbc:postgresql://db.example.com:5432/mydb\",",
+          "    \"access_token\":   \"mcw_...\",",
+          "    \"chains\": {",
+          "      \"orders\":      { \"by_no_query\": \"...\", \"row_count_query\": \"...\" },",
+          "      \"order_items\": { \"by_no_query\": \"...\", \"row_count_query\": \"...\" }",
+          "    }",
+          "  }",
+          "",
+          "Build one with repeated 'mchain config <file> set --chain <alias> [OPTIONS]'."
+      })
+  static class CommitAllCommand implements Callable<Integer> {
+
+    @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+    boolean helpRequested;
+
+    @Option(names = {"--local-config", "-c"}, paramLabel = "<file>", required = true,
+        description = "Local JSON config file (must have a top-level 'chains' object).")
+    File localConfigFile;
+
+    @Option(names = {"--only"}, paramLabel = "<alias>", split = ",",
+        description = "Restrict to these chain aliases (comma-separated). Default: every chain in the file.")
+    List<String> only;
+
+    @Option(names = {"--token", "-t"},
+        description = "Bearer access token, applied to every chain that doesn't set its own.")
+    String token;
+
+    @Option(names = {"--jdbc-url"},
+        description = "JDBC URL, applied to every chain (overrides shared defaults and any per-chain value).")
+    String jdbcUrlOverride;
+
+    @Option(names = {"--jdbc-user"},
+        description = "JDBC username")
+    String jdbcUser;
+
+    @Option(names = {"--jdbc-pass"},
+        description = "JDBC password (omit value to be prompted interactively)",
+        interactive = true, echo = false, arity = "0..1")
+    char[] jdbcPass;
+
+    @Option(names = {"--jdbc-driver-jar"}, paramLabel = "<jar>",
+        description = {
+            "Path to the JDBC driver JAR to load dynamically.",
+            "Relative paths are resolved against the --local-config file's directory."
+        })
+    File jdbcDriverJarOverride;
+
+    @Option(names = {"--batch", "-b"},
+        description = "Max rows per commit request (default: ${DEFAULT-VALUE})",
+        defaultValue = "1000")
+    int batch;
+
+    @Option(names = {"--timezone", "--tz"},
+        description = "JVM timezone for hashing DATE/TIMESTAMP columns; overrides each chain's own.")
+    String timezoneOverride;
+
+    @Option(names = {"--from"},
+        description = "First row to hash and submit, applied to every chain.")
+    Long fromOverride;
+
+    @Option(names = {"--to"},
+        description = "Last row to include (inclusive), applied to every chain. Mutually exclusive with --lag.")
+    Long toOverride;
+
+    @Option(names = {"--lag"},
+        description = "Trailing rows to withhold, applied to every chain. Mutually exclusive with --to.")
+    Long lagOverride;
+
+    @Override
+    public Integer call() throws Exception {
+      if (toOverride != null && lagOverride != null) {
+        System.err.println("ERROR: --to and --lag are mutually exclusive");
+        return 1;
+      }
+
+      LocalConfig cfg;
+      try {
+        cfg = LocalConfig.PARSER.toEntity(localConfigFile);
+      } catch (Exception e) {
+        System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
+        return 1;
+      }
+
+      List<String> aliases = (only != null && !only.isEmpty())
+          ? only
+          : new ArrayList<>(cfg.chainAliases());
+      if (aliases.isEmpty()) {
+        System.err.println("ERROR: no chains configured in '" + localConfigFile + "'");
+        return 1;
+      }
+
+      int failures = 0;
+      for (String alias : aliases) {
+        System.out.println("== " + alias + " ==");
+        ChainConfig chainCfg;
+        try {
+          chainCfg = cfg.resolve(alias);
+        } catch (java.util.NoSuchElementException e) {
+          System.err.println("ERROR: unknown chain '" + alias + "' (not in '" + localConfigFile + "')");
+          failures++;
+          continue;
+        }
+        URI chainUrl = chainCfg.chainUrl().map(URI::create).orElse(null);
+        if (chainUrl == null) {
+          System.err.println("ERROR: no chain_url resolvable for '" + alias +
+              "' — set it explicitly or add 'base_chain_url' to --local-config");
+          failures++;
+          continue;
+        }
+        try {
+          int rc = commitOne(chainUrl, chainCfg, token, jdbcUrlOverride, jdbcDriverJarOverride,
+              jdbcUser, jdbcPass, batch, timezoneOverride, fromOverride, toOverride, lagOverride);
+          if (rc != 0) failures++;
+        } catch (Exception e) {
+          System.err.println("ERROR [" + alias + "]: " + e.getMessage());
+          failures++;
+        }
+        System.out.println();
+      }
+
+      if (failures > 0) {
+        System.out.println(failures + " of " + aliases.size() + " chain(s) failed.");
+        return 1;
+      }
+      return 0;
+    }
   }
 
 
@@ -404,9 +577,10 @@ public class Main implements Runnable {
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
         description = {
             """
-            JSON file supplying local config; 'chain_url' field may replace the \
-            <chain-url> argument.  When it includes sql-config fields (row_count_query, \
-            jdbc_url, default_lag, etc.), those are used to report rows available to commit."""
+            Local JSON config file; the selected chain's (see --chain) 'chain_url' \
+            field may replace the <chain-url> argument.  When it includes sql-config \
+            fields (row_count_query, jdbc_url, default_lag, etc.), those are used \
+            to report rows available to commit."""
         })
     File localConfigFile;
 
@@ -416,7 +590,7 @@ public class Main implements Runnable {
             Bearer access token.  Used to fetch the row-count query (and JDBC details, \
             if not supplied otherwise) from the server's sql-config when not available \
             via --row-count-query or --local-config.""",
-            "May be omitted when --local-config supplies an 'access_token' field."
+            "May be omitted when --local-config resolves an 'access_token' field."
         })
     String token;
 
@@ -446,9 +620,13 @@ public class Main implements Runnable {
 
     @Override
     public Integer call() throws Exception {
-      URI effectiveUrl = resolveChainUrl(opts, localConfigFile);
+      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
+      if (localCfg == null) return 1;
+
+      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
       if (effectiveUrl == null) {
-        System.err.println("ERROR: chain URL is required; pass as argument or add 'chain_url' to --local-config");
+        System.err.println("ERROR: chain URL is required; pass as argument, or configure " +
+            "a resolvable chain_url (or --base-chain-url) in --local-config");
         return 1;
       }
       ChainClient client = newClient(effectiveUrl);
@@ -461,16 +639,6 @@ public class Main implements Runnable {
       }
 
       // ── source row count / available-to-commit (best effort) ────────────────
-      LocalConfig localCfg = LocalConfig.EMPTY;
-      if (localConfigFile != null) {
-        try {
-          localCfg = LocalConfig.PARSER.toEntity(localConfigFile);
-        } catch (JsonParsingException | UncheckedIOException e) {
-          System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
-          return 1;
-        }
-      }
-
       String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
 
       String rowCountQuery = rowCountQueryOverride != null
@@ -534,14 +702,18 @@ public class Main implements Runnable {
     @Mixin ChainOptions opts;
 
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
-        description = "JSON file supplying local config; 'chain_url' field may replace the <chain-url> argument.")
+        description = "Local JSON config file; the selected chain's (see --chain) 'chain_url' field may replace the <chain-url> argument.")
     File localConfigFile;
 
     @Override
     public Integer call() throws Exception {
-      URI effectiveUrl = resolveChainUrl(opts, localConfigFile);
+      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
+      if (localCfg == null) return 1;
+
+      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
       if (effectiveUrl == null) {
-        System.err.println("ERROR: chain URL is required; pass as argument or add 'chain_url' to --local-config");
+        System.err.println("ERROR: chain URL is required; pass as argument, or configure " +
+            "a resolvable chain_url (or --base-chain-url) in --local-config");
         return 1;
       }
       ChainClient client = newClient(effectiveUrl);
@@ -597,7 +769,7 @@ public class Main implements Runnable {
     @Mixin ChainOptions opts;
 
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
-        description = "JSON file supplying local config; 'chain_url' and/or 'access_token' fields may replace the <chain-url> argument / --token.")
+        description = "Local JSON config file; the selected chain's (see --chain) 'chain_url' and/or 'access_token' fields may replace the <chain-url> argument / --token.")
     File localConfigFile;
 
     @Option(names = {"--token", "-t"},
@@ -618,9 +790,13 @@ public class Main implements Runnable {
 
     @Override
     public Integer call() throws Exception {
-      URI effectiveUrl = resolveChainUrl(opts, localConfigFile);
+      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
+      if (localCfg == null) return 1;
+
+      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
       if (effectiveUrl == null) {
-        System.err.println("ERROR: chain URL is required; pass as argument or add 'chain_url' to --local-config");
+        System.err.println("ERROR: chain URL is required; pass as argument, or configure " +
+            "a resolvable chain_url (or --base-chain-url) in --local-config");
         return 1;
       }
       ChainClient client = newClient(effectiveUrl);
@@ -634,15 +810,6 @@ public class Main implements Runnable {
         return 0;
       }
 
-      LocalConfig localCfg = LocalConfig.EMPTY;
-      if (localConfigFile != null) {
-        try {
-          localCfg = LocalConfig.PARSER.toEntity(localConfigFile);
-        } catch (JsonParsingException | UncheckedIOException e) {
-          System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
-          return 1;
-        }
-      }
       String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
       if (effectiveToken == null) {
         System.err.println("ERROR: bearer token required to set column metadata; " +
@@ -713,6 +880,13 @@ public class Main implements Runnable {
           local database by row number (--row) or by an arbitrary WHERE clause \
           (--where, rewriting the by-no-query).""",
           "",
+          """
+          When --local-config already supplies sql-config and a resolvable salt \
+          story (unsalted, or salted with 'salt_scheme' + 'salts' both present \
+          locally), falls back to that local-only config if the chain isn't \
+          (yet) found at the server — handy for testing queries against a chain \
+          that hasn't been registered yet.""",
+          "",
           "Output is JSON (default) or pretty-printed one-cell-per-line (--pretty)."
       })
   static class RowsCommand implements Callable<Integer> {
@@ -722,16 +896,17 @@ public class Main implements Runnable {
     @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
         description = {
             """
-            JSON file supplying local config: access_token, sql-config fields, \
-            and/or salts array.  Fields present here are used instead of fetching \
-            from the server.  CLI flags (--token, --jdbc-url, etc.) take precedence."""
+            Local JSON config file supplying local config: access_token, sql-config \
+            fields, and/or salts array, per chain (see --chain).  Fields present \
+            here are used instead of fetching from the server.  CLI flags \
+            (--token, --jdbc-url, etc.) take precedence."""
         })
     File localConfigFile;
 
     @Option(names = {"--token", "-t"},
         description = {
             "Bearer access token.",
-            "May be omitted when --local-config supplies both sql-config and salt."
+            "May be omitted when --local-config resolves both sql-config and salt."
         })
     String token;
 
@@ -800,41 +975,44 @@ public class Main implements Runnable {
       }
 
       // ── load local config ──────────────────────────────────────────────────
-      LocalConfig localCfg = LocalConfig.EMPTY;
-      if (localConfigFile != null) {
-        try {
-          localCfg = LocalConfig.PARSER.toEntity(localConfigFile);
-        } catch (JsonParsingException | UncheckedIOException e) {
-          System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
-          return 1;
-        }
-      }
+      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
+      if (localCfg == null) return 1;
 
       String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
 
       // CLI chain-url wins; fall back to local config
-      URI effectiveUrl = resolveChainUrl(opts, localConfigFile);
+      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
 
       // ── chain info (public) ────────────────────────────────────────────────
-      // We need ChainInfo for the SaltScheme.  We can skip the server call when
-      // the local config has sql-config and either: (a) no salt epochs (→ NO_SALT),
-      // or (b) salt epochs plus an explicit salt_scheme.
+      // We need ChainInfo for the SaltScheme.  We can skip — or gracefully
+      // survive a failed — server call when the local config has sql-config
+      // and either: (a) no salt epochs (→ NO_SALT), or (b) salt epochs plus
+      // an explicit salt_scheme.  The latter lets queries be tested against
+      // a chain that hasn't been registered on the server yet.
       ChainClient client = effectiveUrl != null ? newClient(effectiveUrl) : null;
+      Optional<ChainInfo> maybeInfo = client != null ? client.getInfo() : Optional.empty();
+      boolean localDryRunCapable = localCfg.sqlConfig().isPresent() &&
+          (localCfg.saltEpochs().isEmpty() || localCfg.saltScheme().isPresent());
+
       ChainInfo info;
-      if (client != null) {
-        info = client.getInfo().orElseThrow(() ->
-            new IllegalArgumentException("Chain not found: " + effectiveUrl));
-      } else if (localCfg.sqlConfig().isPresent() &&
-                 (localCfg.saltEpochs().isEmpty() || localCfg.saltScheme().isPresent())) {
-        // local-only dry-run: unsalted, or salted with scheme supplied locally
+      if (maybeInfo.isPresent()) {
+        info = maybeInfo.get();
+      } else if (localDryRunCapable) {
+        if (client != null)
+          System.err.println("WARN: chain not found at " + effectiveUrl +
+              "; proceeding with local-only config");
         SaltScheme scheme = localCfg.saltScheme().orElse(SaltScheme.NO_SALT);
         info = new ChainInfo(1, Optional.empty(), Optional.empty(), scheme);
       } else if (localCfg.sqlConfig().isPresent()) {
         System.err.println("ERROR: 'salt_scheme' is required in --local-config " +
-            "when 'salts' are present and no chain URL is provided");
+            "when 'salts' are present and the chain isn't resolvable on the server");
+        return 1;
+      } else if (client != null) {
+        System.err.println("ERROR: chain not found: " + effectiveUrl);
         return 1;
       } else {
-        System.err.println("ERROR: chain URL required; pass as argument or add 'chain_url' to --local-config");
+        System.err.println("ERROR: chain URL required; pass as argument, or configure " +
+            "a resolvable chain_url (or --base-chain-url) in --local-config");
         return 1;
       }
 
@@ -850,6 +1028,11 @@ public class Main implements Runnable {
                 "use --token or add 'access_token' to --local-config");
             return 1;
           }
+          if (client == null) {
+            System.err.println("ERROR: a 'salts' array is required in --local-config " +
+                "since no chain URL is configured to fetch it from");
+            return 1;
+          }
           salt = client.getSalts(effectiveToken);
         }
       }
@@ -862,6 +1045,11 @@ public class Main implements Runnable {
         if (effectiveToken == null) {
           System.err.println("ERROR: bearer token required to fetch sql-config; " +
               "use --token or add sql-config fields to --local-config");
+          return 1;
+        }
+        if (client == null) {
+          System.err.println("ERROR: sql-config fields are required in --local-config " +
+              "since no chain URL is configured to fetch them from");
           return 1;
         }
         sqlCfg = client.getSqlConfig(effectiveToken);
@@ -924,7 +1112,7 @@ public class Main implements Runnable {
         List<ColumnInfo> serverColumns = client != null ? client.getColumns() : List.of();
         List<String> columnLabels = resolveColumnLabels(serverColumns, jdbcLabels);
         for (SourceRow row : rows)
-          printRow(row, pretty, columnLabels);
+          printRow(row, pretty, columnLabels, effectiveTz);
       }
       return 0;
     }
@@ -949,7 +1137,7 @@ public class Main implements Runnable {
       return Arrays.asList(labels);
     }
 
-    private static void printRow(SourceRow row, boolean pretty, List<String> columnLabels) {
+    private static void printRow(SourceRow row, boolean pretty, List<String> columnLabels, String timezone) {
       if (pretty) {
         System.out.println("Row " + row.no() +
             "  (hash: " + HashEncoding.BASE64_32.encode(row.hash()) + ")");
@@ -958,17 +1146,31 @@ public class Main implements Runnable {
         if (cells.isEmpty()) {
           System.out.println("  (null row)");
         } else {
+          // Pre-format every cell first so the (TYPE) column can be aligned
+          // to the row's longest value instead of a fixed width — a value
+          // longer than that fixed width (e.g. a DATE with its timezone
+          // suffix) would otherwise push just that row's (TYPE) marker out
+          // of line with the rest.
+          String[] vals = new String[cells.size()];
+          int valWidth = 30;
           for (int i = 0; i < cells.size(); i++) {
             Cell cell = cells.get(i);
-            DataType t = types.get(i);
-            String val = cell.isRedacted()
+            vals[i] = cell.isRedacted()
                 ? "REDACTED"
-                : formatCellValue(cell.value(), t);
+                : formatCellValue(cell.value(), types.get(i), timezone);
+            valWidth = Math.max(valWidth, vals[i].length());
+          }
+          String noLabelFmt   = "  [%d] %-" + valWidth + "s  (%s)%n";
+          String withLabelFmt = "  [%d] %-16s %-" + valWidth + "s  (%s)%n";
+          for (int i = 0; i < cells.size(); i++) {
+            DataType t = types.get(i);
             String label = i < columnLabels.size() ? columnLabels.get(i) : null;
+            // 0-based, matching --salt-scheme and mchain columns'
+            // --name/--description/--clear index convention.
             if (label == null)
-              System.out.printf("  [%d] %-30s  (%s)%n", i + 1, val, t);
+              System.out.printf(noLabelFmt, i, vals[i], t);
             else
-              System.out.printf("  [%d] %-16s %-30s  (%s)%n", i + 1, label, val, t);
+              System.out.printf(withLabelFmt, i, label, vals[i], t);
           }
         }
       } else {
@@ -978,10 +1180,16 @@ public class Main implements Runnable {
       }
     }
 
-    private static String formatCellValue(Object val, DataType type) {
+    private static final DateTimeFormatter PRETTY_DATE_FORMAT =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private static String formatCellValue(Object val, DataType type, String timezone) {
       if (val == null) return "NULL";
       return switch (type) {
         case STRING -> "\"" + val + "\"";
+        case DATE   -> PRETTY_DATE_FORMAT
+            .withZone(ZoneId.of(timezone))
+            .format(Instant.ofEpochMilli((Long) val)) + " " + timezone;
         default     -> String.valueOf(val);
       };
     }
@@ -1002,7 +1210,7 @@ public class Main implements Runnable {
   static class ConfigCommand implements Runnable {
 
     @Parameters(index = "0", arity = "0..1", paramLabel = "<file>",
-        description = "Path to the local config JSON file to create or update.")
+        description = "Path to the local JSON config file to create or update.")
     File configFile;
 
     @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
@@ -1022,13 +1230,18 @@ public class Main implements Runnable {
             "",
             """
             Options not supplied are left unchanged.  Invoke multiple times to build \
-            the file incrementally.  A typical dry-run setup:""",
+            the file incrementally.  --chain-url, --by-no-query, --row-count-query, \
+            --salt-seed, and --salt-scheme configure one specific chain and require \
+            --chain <alias>; the rest (--jdbc-url, --token, --timezone, ...) may be \
+            set with or without --chain — without it, they become shared defaults \
+            any chain not overriding them falls back to.  A typical \
+            dry-run setup for one chain:""",
             "",
             "  mchain config cfg.json set --jdbc-url jdbc:postgresql://db:5432/mydb",
-            "  mchain config cfg.json set --by-no-query  \"SELECT ... WHERE row_no = ?\"",
-            "  mchain config cfg.json set --row-count-query \"SELECT MAX(row_no) FROM ...\"",
-            "  mchain config cfg.json set --salt-seed   # auto-generates a secure seed",
-            "  mchain commit https://micro.crums.io/alice_7/sales --local-config cfg.json",
+            "  mchain config cfg.json set --chain sales --by-no-query  \"SELECT ... WHERE row_no = ?\"",
+            "  mchain config cfg.json set --chain sales --row-count-query \"SELECT MAX(row_no) FROM ...\"",
+            "  mchain config cfg.json set --chain sales --salt-seed   # auto-generates a secure seed",
+            "  mchain commit --local-config cfg.json --chain sales",
             ""
         })
     static class SetCommand implements Callable<Integer> {
@@ -1038,6 +1251,24 @@ public class Main implements Runnable {
 
       @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
       boolean helpRequested;
+
+      @Option(names = {"--chain"}, paramLabel = "<alias>",
+          description = {
+              "Apply this update to the named chain within the file's",
+              "top-level 'chains' object instead of the top level.",
+              "Creates the 'chains' object and/or the named entry if absent.",
+              "See 'mchain commit-all --help' for the local config file format."
+          })
+      String chainAlias;
+
+      @Option(names = {"--base-chain-url"}, paramLabel = "<url>",
+          description = {
+              "Shared-default URL prefix (<server>/{user}). Combined with each",
+              "chain's alias (its key under 'chains') to infer that chain's",
+              "chain_url when the chain doesn't set its own. Always applies at",
+              "the top level of the file, regardless of --chain."
+          })
+      String baseChainUrl;
 
       @Option(names = {"--chain-url"}, paramLabel = "<chain-url>",
           description = "Full chain URL (<server>/{user}/{chain}); lets the <chain-url> " +
@@ -1116,10 +1347,17 @@ public class Main implements Runnable {
           System.err.println("ERROR: <file> is required");
           return 1;
         }
+        if (chainAlias == null && (chainUrl != null || byNoQuery != null || rowCountQuery != null
+            || saltSeed != null || saltSchemeStr != null)) {
+          System.err.println("ERROR: --chain-url, --by-no-query, --row-count-query, --salt-seed, " +
+              "and --salt-scheme configure one specific chain and require --chain <alias>");
+          return 1;
+        }
         Path path = parent.configFile.toPath();
+        boolean existed = Files.exists(path);
 
         JSONObject jObj;
-        if (Files.exists(path)) {
+        if (existed) {
           try {
             jObj = (JSONObject) new JSONParser(true).parse(Files.readString(path));
           } catch (ParseException e) {
@@ -1131,31 +1369,35 @@ public class Main implements Runnable {
           jObj = new JSONObject();
         }
 
-        if (chainUrl != null) {
-          if (jObj.containsKey(CHAIN_URL_KEY)) {
-            jObj.put(CHAIN_URL_KEY, chainUrl);
-          } else {
-            // New chain_url: lead with it so a human can see at a glance
-            // which chain the file belongs to.
-            JSONObject reordered = new JSONObject();
-            reordered.put(CHAIN_URL_KEY, chainUrl);
-            reordered.putAll(jObj);
-            jObj = reordered;
-          }
+        // --base-chain-url always applies at the top level, regardless of --chain
+        if (baseChainUrl != null) jObj.put(BASE_CHAIN_URL_KEY, baseChainUrl);
+
+        // Everything else applies either to the file root (shared defaults),
+        // or — when --chain is given — to the named entry under the
+        // top-level 'chains' object.
+        JSONObject chainsObj = null;
+        JSONObject target = jObj;
+        if (chainAlias != null) {
+          Object chainsVal = jObj.get(CHAINS_KEY);
+          chainsObj = (chainsVal instanceof JSONObject co) ? co : new JSONObject();
+          Object entryVal = chainsObj.get(chainAlias);
+          target = (entryVal instanceof JSONObject eo) ? eo : new JSONObject();
         }
-        if (token           != null) jObj.put(ACCESS_TOKEN_KEY,       token);
-        if (jdbcUrl         != null) jObj.put(JDBC_URL_KEY,           jdbcUrl);
-        if (jdbcDriverClass != null) jObj.put(JDBC_DRIVER_CLASS_KEY,  jdbcDriverClass);
-        if (jdbcDriverJar   != null) jObj.put(JDBC_DRIVER_JAR_KEY,    jdbcDriverJar.toString());
+
+        if (chainUrl        != null) target.put(CHAIN_URL_KEY,           chainUrl);
+        if (token           != null) target.put(ACCESS_TOKEN_KEY,       token);
+        if (jdbcUrl         != null) target.put(JDBC_URL_KEY,           jdbcUrl);
+        if (jdbcDriverClass != null) target.put(JDBC_DRIVER_CLASS_KEY,  jdbcDriverClass);
+        if (jdbcDriverJar   != null) target.put(JDBC_DRIVER_JAR_KEY,    jdbcDriverJar.toString());
         if (jdbcProps       != null) {
           JSONObject propsObj = new JSONObject();
           jdbcProps.forEach(propsObj::put);
-          jObj.put(JDBC_PROPS_KEY, propsObj);
+          target.put(JDBC_PROPS_KEY, propsObj);
         }
-        if (byNoQuery       != null) jObj.put(BY_NO_QUERY_KEY,        byNoQuery);
-        if (rowCountQuery   != null) jObj.put(ROW_COUNT_QUERY_KEY,    rowCountQuery);
-        if (timezone        != null) jObj.put(TIMEZONE_KEY,           timezone);
-        if (defaultLag      != null) jObj.put(DEFAULT_LAG_KEY,        defaultLag);
+        if (byNoQuery       != null) target.put(BY_NO_QUERY_KEY,        byNoQuery);
+        if (rowCountQuery   != null) target.put(ROW_COUNT_QUERY_KEY,    rowCountQuery);
+        if (timezone        != null) target.put(TIMEZONE_KEY,           timezone);
+        if (defaultLag      != null) target.put(DEFAULT_LAG_KEY,        defaultLag);
 
         if (saltSeed != null) {
           byte[] seedBytes;
@@ -1177,7 +1419,7 @@ public class Main implements Runnable {
           }
           JSONArray saltsArr = new JSONArray();
           saltsArr.add(EpochSeedParser.PARSER.injectEntity(new EpochSeed(1L, seedBytes), new JSONObject()));
-          jObj.put(SALTS_KEY, saltsArr);
+          target.put(SALTS_KEY, saltsArr);
         }
 
         if (saltSchemeStr != null) {
@@ -1188,11 +1430,17 @@ public class Main implements Runnable {
             System.err.println("ERROR: --salt-scheme: " + e.getMessage());
             return 1;
           }
-          jObj.put(SALT_SCHEME_KEY, SaltSchemeParser.PARSER.toJsonObject(scheme));
+          target.put(SALT_SCHEME_KEY, SaltSchemeParser.PARSER.toJsonObject(scheme));
+        }
+
+        // Write the (possibly new/updated) per-chain entry back into 'chains'
+        if (chainAlias != null) {
+          chainsObj.put(chainAlias, target);
+          jObj.put(CHAINS_KEY, chainsObj);
         }
 
         Files.writeString(path, JsonPrinter.toJson(jObj));
-        System.out.println("Updated: " + path);
+        System.out.println((existed ? "Updated: " : "Created: ") + path);
         return 0;
       }
     }
@@ -1236,19 +1484,62 @@ public class Main implements Runnable {
     };
   }
 
-  /** CLI arg wins; falls back to {@code chain_url} in the local config file (if any). */
-  private static URI resolveChainUrl(ChainOptions opts, File localConfigFile) {
-    if (opts.chainUrl != null)
-      return opts.chainUrl;
-    if (localConfigFile != null) {
-      try {
-        return LocalConfig.PARSER.toEntity(localConfigFile)
-            .chainUrl().map(URI::create).orElse(null);
-      } catch (Exception e) {
-        // caller will handle null and report an appropriate error
+  /**
+   * Loads {@code localConfigFile} (if given) as a {@link LocalConfig} and
+   * resolves the single chain to operate on: {@code chainAlias} when given,
+   * else the file's sole chain when it has exactly one. Used by every
+   * command that operates on one chain at a time — {@code commit-all} manages
+   * its own iteration over every chain in the file instead.
+   *
+   * <p>Returns {@link ChainConfig#EMPTY} when {@code localConfigFile} is
+   * {@code null} ({@code chainAlias} must then also be null). On any
+   * failure — unreadable file, unknown alias, or an empty/ambiguous set of
+   * chains when no alias was given — prints an {@code ERROR:} line and
+   * returns {@code null}.</p>
+   */
+  private static ChainConfig resolveLocalConfig(File localConfigFile, String chainAlias) {
+    if (localConfigFile == null) {
+      if (chainAlias != null) {
+        System.err.println("ERROR: --chain requires --local-config");
+        return null;
+      }
+      return ChainConfig.EMPTY;
+    }
+    LocalConfig cfg;
+    try {
+      cfg = LocalConfig.PARSER.toEntity(localConfigFile);
+    } catch (JsonParsingException | UncheckedIOException e) {
+      System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
+      return null;
+    }
+    String alias = chainAlias;
+    if (alias == null) {
+      var aliases = cfg.chainAliases();
+      if (aliases.size() == 1) {
+        alias = aliases.iterator().next();
+      } else if (aliases.isEmpty()) {
+        System.err.println("ERROR: '" + localConfigFile + "' has no chains configured; " +
+            "add one with 'mchain config " + localConfigFile + " set --chain <alias> ...'");
+        return null;
+      } else {
+        System.err.println("ERROR: '" + localConfigFile + "' has multiple chains " + aliases +
+            "; select one with --chain <alias>");
+        return null;
       }
     }
-    return null;
+    try {
+      return cfg.resolve(alias);
+    } catch (java.util.NoSuchElementException e) {
+      System.err.println("ERROR: unknown chain '" + alias + "' (not in '" + localConfigFile + "')");
+      return null;
+    }
+  }
+
+  /** CLI positional arg wins; falls back to the resolved local config's chain_url. */
+  private static URI effectiveChainUrl(ChainOptions opts, ChainConfig localCfg) {
+    if (opts.chainUrl != null)
+      return opts.chainUrl;
+    return localCfg.chainUrl().map(URI::create).orElse(null);
   }
 
   private static ChainClient newClient(URI chainUrl) {
@@ -1287,7 +1578,7 @@ public class Main implements Runnable {
    * the middle merge is a harmless no-op.
    */
   private static DbConfig effectiveDbConfig(
-      Optional<DbConfig> primary, LocalConfig localCfg,
+      Optional<DbConfig> primary, ChainConfig localCfg,
       String jdbcUrlOverride, File jdbcDriverJarOverride) {
     return primary.orElse(DbConfig.EMPTY)
         .merge(localCfg.dbConfig().orElse(DbConfig.EMPTY))
