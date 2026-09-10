@@ -170,20 +170,23 @@ public record DbConfig(
   // Cache: defineModulesWithOneLoader(..) creates a new ClassLoader (and thus
   // reloads the driver's native library, e.g. sqlite-jdbc) on every call;
   // keyed by absolute path so distinct jars still load independently.
-  private static final Map<Path, List<Driver>> DRIVER_JAR_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+  // Values are weakly held so the cache self-releases: once nothing (e.g. no
+  // open Connection, which keeps its defining ClassLoader reachable) still
+  // needs the loaded drivers, the entry can be collected without an explicit
+  // close/shutdown call — java.sql.Driver has no such method anyway.
+  private static final Map<Path, java.lang.ref.WeakReference<List<Driver>>> DRIVER_JAR_CACHE =
+      new java.util.HashMap<>();
 
   /** Loads (and caches, per jar) all JDBC drivers from {@code jar} via a child JPMS module layer. */
   private static List<Driver> loadDriversFromJar(Path jar) throws SQLException {
     Path key = jar.toAbsolutePath().normalize();
-    List<Driver> cached = DRIVER_JAR_CACHE.get(key);
-    if (cached != null)
-      return cached;
     synchronized (DRIVER_JAR_CACHE) {
-      cached = DRIVER_JAR_CACHE.get(key);
+      var ref = DRIVER_JAR_CACHE.get(key);
+      List<Driver> cached = ref == null ? null : ref.get();
       if (cached != null)
         return cached;
       List<Driver> drivers = loadDriversFromJarUncached(key);
-      DRIVER_JAR_CACHE.put(key, drivers);
+      DRIVER_JAR_CACHE.put(key, new java.lang.ref.WeakReference<>(drivers));
       return drivers;
     }
   }
