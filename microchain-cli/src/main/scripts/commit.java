@@ -5,10 +5,10 @@
 // Prerequisites:
 //   1. Build and install the project locally:
 //        cd <microchain-client-root>  &&  mvn install
-//   2. Supply your JDBC driver at run time via --deps, e.g. for PostgreSQL:
+//   2. Supply your JDBC driver at run time via --deps, e.g. for SQLite:
+//        jbang run --deps org.xerial:sqlite-jdbc:3.50.3.0 commit.java ...
+//      or for PostgreSQL:
 //        jbang run --deps org.postgresql:postgresql:42.7.3 commit.java ...
-//      or for H2 (testing):
-//        jbang run --repos mavenCentral,mavenLocal --deps com.h2database:h2:2.3.232 commit.java ...
 //
 // Usage:
 //   jbang run --deps <group:artifact:version> microchain-cli/src/main/scripts/commit.java \
@@ -18,20 +18,18 @@
 //       [--timezone <tz>] [--from <n>] [--to <n>] [--lag <n>]
 //
 // Example (token on command line):
-//   jbang run --deps org.postgresql:postgresql:42.7.3 \
+//   jbang run --deps org.xerial:sqlite-jdbc:3.50.3.0 \
 //       microchain-cli/src/main/scripts/commit.java \
-//       http://localhost:8081/alice/sales \
+//       https://micro.crums.io/bikeshop/orders \
 //       --token my-access-token \
-//       --jdbc-url jdbc:postgresql://localhost:5432/mydb \
-//       --jdbc-user alice \
-//       --jdbc-pass secret
+//       --jdbc-url jdbc:sqlite:/data/bikeshop/bikes.db
 //
 // Example (all sensitive values in a local config file; --chain may be
 // omitted when the file has exactly one chain configured):
-//   jbang run --deps org.postgresql:postgresql:42.7.3 \
+//   jbang run --deps org.xerial:sqlite-jdbc:3.50.3.0 \
 //       microchain-cli/src/main/scripts/commit.java \
-//       http://localhost:8081/alice/sales \
-//       --local-config ~/.config/crums/sales.json --chain sales
+//       https://micro.crums.io/bikeshop/orders \
+//       --local-config ~/.config/crums/bikechains.json --chain orders
 
 //REPOS mavenCentral,mavenLocal
 //DEPS io.crums:microchain-http:0.1.0-SNAPSHOT
@@ -92,7 +90,7 @@ class commit implements Callable<Integer> {
   @Parameters(index = "0", paramLabel = "<chain-url>",
       description = {
           "Full chain URL: <server>/{user}/{chain}",
-          "  e.g. https://micro.crums.io/alice/sales"
+          "  e.g. https://micro.crums.io/bikeshop/orders"
       })
   URI chainUrl;
 

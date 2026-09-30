@@ -1,7 +1,7 @@
 # microchain-api
 
 REST API contract layer: entity types and JSON parsers shared between
-`microchain-cli` (client) and `microchain-webservices` (server).
+`microchain-cli` (client) and server.
 
 ## Package
 
