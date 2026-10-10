@@ -4,5 +4,6 @@ module io.crums.micro.api {
   requires transitive io.crums.sldg.src.sql;
 
   exports io.crums.micro.api;
+  exports io.crums.micro.api.receipt;
 
 }

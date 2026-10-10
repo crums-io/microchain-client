@@ -8,6 +8,7 @@ import static io.crums.micro.api.ApiConstants.*;
 import java.io.File;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 
+import io.crums.micro.api.receipt.ReceiptTemplate;
 import io.crums.sldg.salt.EpochedTableSalt;
 import io.crums.sldg.salt.EpochedTableSalt.EpochSeed;
 import io.crums.sldg.salt.TableSalt;
@@ -65,25 +67,48 @@ import io.crums.util.json.simple.JSONObject;
  * @param timezone      default timezone, used when a chain doesn't set its own
  * @param defaultLag    default trailing-row lag, used when a chain doesn't set its own
  * @param chains        per-chain configs, keyed by local alias
+ * @param receiptTemplates named {@link ReceiptTemplate}s for {@code mchain receipt generate},
+ *                      keyed by template name
  */
 public record LocalConfig(
-    Optional<String>          baseChainUrl,
-    Optional<String>          accessToken,
-    DbConfig                  dbConfig,
-    Optional<String>          timezone,
-    Optional<Long>            defaultLag,
-    Map<String, ChainConfig>  chains) {
+    Optional<String>              baseChainUrl,
+    Optional<String>              accessToken,
+    DbConfig                      dbConfig,
+    Optional<String>              timezone,
+    Optional<Long>                defaultLag,
+    Map<String, ChainConfig>      chains,
+    Map<String, ReceiptTemplate>  receiptTemplates) {
 
   public static final Parser PARSER = new Parser();
 
   public LocalConfig {
     dbConfig = dbConfig == null ? DbConfig.EMPTY : dbConfig;
-    chains = Map.copyOf(chains);
+    // Map.copyOf(..) does not preserve iteration order; a hand-rolled
+    // LinkedHashMap does, matching declaration order in the config file.
+    chains = Collections.unmodifiableMap(new LinkedHashMap<>(chains));
+    receiptTemplates = Collections.unmodifiableMap(new LinkedHashMap<>(receiptTemplates));
   }
 
   /** The local aliases (the {@code chains} object's keys) configured in this file. */
   public Set<String> chainAliases() {
     return chains.keySet();
+  }
+
+  /** The names of {@link #receiptTemplates()} configured in this file. */
+  public Set<String> receiptTemplateNames() {
+    return receiptTemplates.keySet();
+  }
+
+  /**
+   * Returns the named {@link ReceiptTemplate}.
+   *
+   * @throws NoSuchElementException if {@code name} isn't in {@link #receiptTemplates()}
+   */
+  public ReceiptTemplate resolveTemplate(String name) {
+    ReceiptTemplate tmpl = receiptTemplates.get(name);
+    if (tmpl == null)
+      throw new NoSuchElementException("no such receipt template: " + name);
+    return tmpl;
   }
 
   /**
@@ -137,7 +162,7 @@ public record LocalConfig(
     chains.forEach((alias, cfg) -> resolvedChains.put(alias, cfg.resolve(configDir)));
     return new LocalConfig(
         baseChainUrl, accessToken, dbConfig.resolve(configDir), timezone, defaultLag,
-        resolvedChains);
+        resolvedChains, receiptTemplates);
   }
 
 
@@ -154,8 +179,14 @@ public record LocalConfig(
       cfg.defaultLag().ifPresent(l -> jObj.put(DEFAULT_LAG_KEY, l));
       JSONObject chainsObj = new JSONObject();
       cfg.chains().forEach((alias, chainCfg) ->
-          chainsObj.put(alias, ChainConfig.PARSER.injectEntity(chainCfg, new JSONObject())));
+          chainsObj.put(alias, ChainConfig.PARSER.toJsonObject(chainCfg)));
       jObj.put(CHAINS_KEY, chainsObj);
+      if (!cfg.receiptTemplates().isEmpty()) {
+        JSONObject templatesObj = new JSONObject();
+        cfg.receiptTemplates().forEach((name, tmpl) ->
+            templatesObj.put(name, ReceiptTemplate.PARSER.toJsonObject(tmpl)));
+        jObj.put(RECEIPT_TEMPLATES_KEY, templatesObj);
+      }
       return jObj;
     }
 
@@ -185,18 +216,30 @@ public record LocalConfig(
       if (lagVal instanceof Number n) defaultLag = Optional.of(n.longValue());
 
       Map<String, ChainConfig> chains = new LinkedHashMap<>();
-      Object chainsVal = jObj.get(CHAINS_KEY);
-      if (chainsVal instanceof JSONObject chainsObj) {
-        for (Object keyObj : chainsObj.keySet()) {
-          String alias = String.valueOf(keyObj);
-          Object entryVal = chainsObj.get(keyObj);
-          if (!(entryVal instanceof JSONObject entryObj))
-            throw new JsonParsingException("chains." + alias + " must be a JSON object");
+      JSONObject chainsObj = JsonUtils.getJsonObject(jObj, CHAINS_KEY, false);
+      if (chainsObj != null) {
+        for (var entry : chainsObj.entrySet()) {
+          String alias = String.valueOf(entry.getKey());
+          if (!(entry.getValue() instanceof JSONObject entryObj))
+            throw new JsonParsingException(CHAINS_KEY + "." + alias + " must be a JSON object");
           chains.put(alias, ChainConfig.PARSER.toEntity(entryObj));
         }
       }
 
-      return new LocalConfig(baseChainUrl, token, dbConfig, timezone, defaultLag, chains);
+      Map<String, ReceiptTemplate> receiptTemplates = new LinkedHashMap<>();
+      JSONObject templatesObj = JsonUtils.getJsonObject(jObj, RECEIPT_TEMPLATES_KEY, false);
+      if (templatesObj != null) {
+        for (var entry : templatesObj.entrySet()) {
+          String name = String.valueOf(entry.getKey());
+          if (!(entry.getValue() instanceof JSONObject entryObj))
+            throw new JsonParsingException(
+                RECEIPT_TEMPLATES_KEY + "." + name + " must be a JSON object");
+          receiptTemplates.put(name, ReceiptTemplate.PARSER.toEntity(entryObj));
+        }
+      }
+
+      return new LocalConfig(
+          baseChainUrl, token, dbConfig, timezone, defaultLag, chains, receiptTemplates);
     }
   }
 

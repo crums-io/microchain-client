@@ -53,5 +53,15 @@ public class ApiConstants {
   public static final String CHAINS_KEY         = "chains";
   public static final String BASE_CHAIN_URL_KEY = "base_chain_url";
 
+  // local config file — 'receipt_templates' object
+  public static final String RECEIPT_TEMPLATES_KEY = "receipt_templates";
+  public static final String CHAIN_KEY             = "chain";
+  public static final String WHERE_KEY             = "where";
+  public static final String ARGS_KEY              = "args";
+
+  // receipt JSON (draft and anchored)
+  public static final String ROWS_KEY  = "rows";
+  public static final String STATE_KEY = "state";
+
   private ApiConstants() { }
 }

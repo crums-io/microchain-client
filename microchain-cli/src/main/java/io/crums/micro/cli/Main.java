@@ -4,6 +4,7 @@
 package io.crums.micro.cli;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -34,6 +35,9 @@ import io.crums.micro.api.DbConfig;
 import io.crums.micro.api.LocalConfig;
 import io.crums.micro.api.LocalConfig.ChainConfig;
 import io.crums.micro.api.SqlConfig;
+import io.crums.micro.api.receipt.ChainReceipt;
+import io.crums.micro.api.receipt.Receipt;
+import io.crums.micro.api.receipt.ReceiptTemplate;
 import io.crums.micro.http.ChainClient;
 import io.crums.sldg.HashConflictException;
 import io.crums.sldg.json.HashEncoding;
@@ -81,6 +85,7 @@ import picocli.CommandLine.Parameters;
         Main.RowsCommand.class,
         Main.ColumnsCommand.class,
         Main.ConfigCommand.class,
+        Main.ReceiptCommand.class,
         CommandLine.HelpCommand.class
     },
     mixinStandardHelpOptions = true,
@@ -1041,77 +1046,18 @@ public class Main implements Runnable {
       // CLI chain-url wins; fall back to local config
       URI effectiveUrl = effectiveChainUrl(opts, localCfg);
 
-      // ── chain info (public) ────────────────────────────────────────────────
-      // We need ChainInfo for the SaltScheme.  We can skip — or gracefully
-      // survive a failed — server call when the local config has sql-config
-      // and either: (a) no salt epochs (→ NO_SALT), or (b) salt epochs plus
-      // an explicit salt_scheme.  The latter lets queries be tested against
-      // a chain that hasn't been registered on the server yet.
+      // ── chain info, salt, sql-config (public/local-fallback, then salt+sql) ──
       ChainClient client = effectiveUrl != null ? newClient(effectiveUrl) : null;
-      Optional<ChainInfo> maybeInfo = client != null ? client.getInfo() : Optional.empty();
-      boolean localDryRunCapable = localCfg.sqlConfig().isPresent() &&
-          (localCfg.saltEpochs().isEmpty() || localCfg.saltScheme().isPresent());
-
-      ChainInfo info;
-      if (maybeInfo.isPresent()) {
-        info = maybeInfo.get();
-      } else if (localDryRunCapable) {
-        if (client != null)
-          System.err.println("WARN: chain not found at " + effectiveUrl +
-              "; proceeding with local-only config");
-        SaltScheme scheme = localCfg.saltScheme().orElse(SaltScheme.NO_SALT);
-        info = new ChainInfo(1, Optional.empty(), Optional.empty(), scheme);
-      } else if (localCfg.sqlConfig().isPresent()) {
-        System.err.println("ERROR: 'salt_scheme' is required in --local-config " +
-            "when 'salts' are present and the chain isn't resolvable on the server");
-        return 1;
-      } else if (client != null) {
-        System.err.println("ERROR: chain not found: " + effectiveUrl);
-        return 1;
-      } else {
-        System.err.println("ERROR: chain URL required; pass as argument, or configure " +
-            "a resolvable chain_url (or --base-chain-url) in --local-config");
+      ResolvedQueryConfig rqc;
+      try {
+        rqc = resolveQueryConfig(localCfg, effectiveUrl, client, effectiveToken);
+      } catch (IllegalStateException e) {
+        System.err.println("ERROR: " + e.getMessage());
         return 1;
       }
-
-      // ── salt ───────────────────────────────────────────────────────────────
-      TableSalt salt = null;
-      if (info.saltScheme().hasSalt()) {
-        var localSalt = localCfg.tableSalt();
-        if (localSalt.isPresent()) {
-          salt = localSalt.get();
-        } else {
-          if (effectiveToken == null) {
-            System.err.println("ERROR: bearer token required to fetch salts; " +
-                "use --token or add 'access_token' to --local-config");
-            return 1;
-          }
-          if (client == null) {
-            System.err.println("ERROR: a 'salts' array is required in --local-config " +
-                "since no chain URL is configured to fetch it from");
-            return 1;
-          }
-          salt = client.getSalts(effectiveToken);
-        }
-      }
-
-      // ── sql-config ─────────────────────────────────────────────────────────
-      SqlConfig sqlCfg;
-      if (localCfg.sqlConfig().isPresent()) {
-        sqlCfg = localCfg.sqlConfig().get();
-      } else {
-        if (effectiveToken == null) {
-          System.err.println("ERROR: bearer token required to fetch sql-config; " +
-              "use --token or add sql-config fields to --local-config");
-          return 1;
-        }
-        if (client == null) {
-          System.err.println("ERROR: sql-config fields are required in --local-config " +
-              "since no chain URL is configured to fetch them from");
-          return 1;
-        }
-        sqlCfg = client.getSqlConfig(effectiveToken);
-      }
+      SaltScheme saltScheme = rqc.saltScheme();
+      TableSalt  salt       = rqc.salt();
+      SqlConfig  sqlCfg     = rqc.sqlConfig();
 
       // ── timezone ───────────────────────────────────────────────────────────
       String effectiveTz = sqlCfg.timezone().orElse("UTC");
@@ -1144,14 +1090,14 @@ public class Main implements Runnable {
         if (rowNo != null) {
           try (LabeledSqlLedger ledger = LabeledSqlLedger.open(
               conn, effectiveCfg.rowCountQuery(), effectiveCfg.byNoQuery(),
-              info.saltScheme(), salt)) {
+              saltScheme, salt)) {
             rows = List.of(ledger.getSourceRow(rowNo));
             jdbcLabels = ledger.columnLabels();
           }
         } else {
           try (DisplaySqlLedger ledger = DisplaySqlLedger.open(
               conn, effectiveCfg.rowCountQuery(), effectiveCfg.byNoQuery(),
-              info.saltScheme(), salt)) {
+              saltScheme, salt)) {
             rows = ledger.query(whereClause);
             jdbcLabels = ledger.columnLabels();
           }
@@ -1505,6 +1451,203 @@ public class Main implements Runnable {
   }
 
 
+  // ── receipt ──────────────────────────────────────────────────────────────────
+
+  @Command(
+      name = "receipt",
+      description = "Generate and anchor tamper-evident receipts.",
+      subcommands = {
+          Main.ReceiptCommand.GenerateCommand.class,
+          Main.ReceiptCommand.AnchorCommand.class,
+          CommandLine.HelpCommand.class
+      })
+  static class ReceiptCommand implements Runnable {
+
+    @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+    boolean helpRequested;
+
+    @Override
+    public void run() {
+      new CommandLine(this).usage(System.out);
+    }
+
+
+    @Command(
+        name = "generate",
+        description = {
+            "Generate a draft receipt from a 'receipt_templates' entry in --local-config.",
+            "",
+            """
+            Walks the named template's chain selectors in order: the first binds \
+            <input>... directly (its 'where' clause's '?'s, in order, or — if it has \
+            no 'where' — the single <input> as a row number); every later selector \
+            derives its own bound values from a row already resolved for an earlier \
+            chain, via ROW_NO(:alias) or :alias.column in its 'args'. The first chain \
+            must resolve to exactly one row; every other chain may resolve to any \
+            number (including zero) without that being an error — see 'chain' field \
+            in a RowSelector's javadoc for the full binding rules.""",
+            "",
+            "Every chain touched needs a complete local sql-config and salt story " +
+            "(server-fetched sql-config/salts also work, same as 'mchain rows').",
+            "",
+            "Output is a draft receipt (no commitment proof yet) — see 'mchain receipt anchor'."
+        })
+    static class GenerateCommand implements Callable<Integer> {
+
+      @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+      boolean helpRequested;
+
+      @Option(names = {"--local-config", "-c"}, required = true, paramLabel = "<file>",
+          description = "Local JSON config file with a 'receipt_templates' object.")
+      File localConfigFile;
+
+      @Option(names = {"--template"}, required = true, paramLabel = "<name>",
+          description = "Template name under 'receipt_templates' in --local-config.")
+      String templateName;
+
+      @Option(names = {"--token", "-t"},
+          description = "Bearer access token, for any chain needing server-fetched sql-config/salts.")
+      String token;
+
+      @Option(names = {"--jdbc-url"},
+          description = "JDBC URL, applied to every chain touched (overrides shared defaults and any per-chain value).")
+      String jdbcUrlOverride;
+
+      @Option(names = {"--jdbc-user"},
+          description = "JDBC username")
+      String jdbcUser;
+
+      @Option(names = {"--jdbc-pass"},
+          description = "JDBC password (omit value to be prompted interactively)",
+          interactive = true, echo = false, arity = "0..1")
+      char[] jdbcPass;
+
+      @Option(names = {"--jdbc-driver-jar"}, paramLabel = "<jar>",
+          description = {
+              "Path to the JDBC driver JAR to load dynamically.",
+              "Relative paths are resolved against the --local-config file's directory."
+          })
+      File jdbcDriverJarOverride;
+
+      @Parameters(paramLabel = "<input>",
+          description = "Input value(s) bound to the template's first chain, in order.")
+      List<String> inputs = List.of();
+
+      @Override
+      public Integer call() throws Exception {
+        LocalConfig cfg;
+        try {
+          cfg = LocalConfig.PARSER.toEntity(localConfigFile);
+        } catch (Exception e) {
+          System.err.println("ERROR: cannot read --local-config '" + localConfigFile + "': " + e.getMessage());
+          return 1;
+        }
+
+        ReceiptTemplate template;
+        try {
+          template = cfg.resolveTemplate(templateName);
+        } catch (java.util.NoSuchElementException e) {
+          System.err.println("ERROR: unknown receipt template '" + templateName +
+              "' (not in '" + localConfigFile + "')");
+          return 1;
+        }
+
+        var generator = new ReceiptGenerator(
+            cfg, token, jdbcUrlOverride, jdbcDriverJarOverride, jdbcUser, jdbcPass);
+
+        Receipt receipt;
+        try {
+          receipt = generator.generate(template, inputs);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+          System.err.println("ERROR: " + e.getMessage());
+          return 1;
+        }
+
+        JsonPrinter.println(Receipt.PARSER.toJsonObject(receipt));
+        return 0;
+      }
+    }
+
+
+    @Command(
+        name = "anchor",
+        description = {
+            "Attach a skipledger commitment path to each chain entry in a receipt.",
+            "",
+            """
+            For every entry not already anchored, fetches GET /state for exactly \
+            its row numbers plus the chain's latest row, and attaches the result as \
+            that entry's 'state'. An entry whose chain has no committed rows yet (or \
+            can't be reached) is left as a draft, with a warning — anchoring is \
+            best-effort per chain, not all-or-nothing."""
+        })
+    static class AnchorCommand implements Callable<Integer> {
+
+      @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+      boolean helpRequested;
+
+      @Parameters(index = "0", paramLabel = "<receipt-file>",
+          description = "Draft (or partially anchored) receipt JSON file.")
+      File receiptFile;
+
+      @Option(names = {"-o", "--output"}, paramLabel = "<file>",
+          description = "Write the anchored receipt here instead of stdout.")
+      File outputFile;
+
+      @Override
+      public Integer call() throws Exception {
+        Receipt receipt;
+        try {
+          receipt = Receipt.PARSER.toEntity(receiptFile);
+        } catch (Exception e) {
+          System.err.println("ERROR: cannot read '" + receiptFile + "': " + e.getMessage());
+          return 1;
+        }
+
+        int anchoredCount = 0;
+        List<ChainReceipt> result = new ArrayList<>(receipt.chains().size());
+        for (ChainReceipt cr : receipt.chains()) {
+          if (cr.isAnchored()) {
+            result.add(cr);
+            anchoredCount++;
+            continue;
+          }
+          try {
+            URI chainUrl = URI.create(cr.chainUrl());
+            ChainClient client = newClient(chainUrl);
+            Optional<io.crums.sldg.Path> path = client.getState(cr.rowNumbers(), true, true);
+            if (path.isEmpty()) {
+              System.err.println("WARN: " + cr.chainUrl() +
+                  " has no committed rows yet; leaving as draft");
+              result.add(cr);
+              continue;
+            }
+            result.add(cr.withState(path.get()));
+            anchoredCount++;
+          } catch (Exception e) {
+            System.err.println("WARN: could not anchor " + cr.chainUrl() +
+                "; leaving as draft: " + e.getMessage());
+            result.add(cr);
+          }
+        }
+
+        Receipt anchored = new Receipt(result);
+        String json = JsonPrinter.toJson(Receipt.PARSER.toJsonObject(anchored));
+        if (outputFile != null) {
+          Files.writeString(outputFile.toPath(), json);
+          System.out.println("Wrote: " + outputFile);
+        } else {
+          System.out.println(json);
+        }
+
+        if (anchoredCount < result.size())
+          System.err.println("Anchored " + anchoredCount + " of " + result.size() + " chain(s).");
+        return 0;
+      }
+    }
+  }
+
+
   // ── helpers ──────────────────────────────────────────────────────────────────
 
   /**
@@ -1600,7 +1743,7 @@ public class Main implements Runnable {
     return localCfg.chainUrl().map(URI::create).orElse(null);
   }
 
-  private static ChainClient newClient(URI chainUrl) {
+  static ChainClient newClient(URI chainUrl) {
     URI base = URI.create(chainUrl.getScheme() + "://" + chainUrl.getAuthority());
     String[] parts = chainUrl.getPath().split("/");
     int n = parts.length;
@@ -1608,6 +1751,91 @@ public class Main implements Runnable {
       throw new IllegalArgumentException(
           "chain-url must end with /{user}/{chain}: " + chainUrl);
     return new ChainClient(base, parts[n-2], parts[n-1], HttpClient.newHttpClient());
+  }
+
+  /** Salt scheme, table salt, and SQL ledger config needed to query one chain locally. */
+  record ResolvedQueryConfig(SaltScheme saltScheme, TableSalt salt, SqlConfig sqlConfig) { }
+
+  /**
+   * Resolves the {@link SaltScheme}, {@link TableSalt}, and {@link SqlConfig} needed
+   * to open a local ledger for one chain — the same local-config-first /
+   * server-fallback logic {@code mchain rows} uses (see that command's
+   * description), factored out for reuse by the receipt-template resolver,
+   * which repeats this once per chain in a template.
+   *
+   * @param client the already-resolved {@link ChainClient} for {@code effectiveUrl}
+   *               ({@code null} when no chain URL is resolvable), kept as a
+   *               parameter (rather than constructed here) so callers that
+   *               need it again afterward (e.g. for {@code GET /columns})
+   *               don't have to re-derive it
+   * @throws IllegalStateException with a user-facing message, on any
+   *         unresolvable configuration (missing token, chain not found, etc.)
+   */
+  static ResolvedQueryConfig resolveQueryConfig(
+      ChainConfig localCfg, URI effectiveUrl, ChainClient client, String effectiveToken)
+      throws IOException, InterruptedException {
+
+    // ── chain info (public) ──────────────────────────────────────────────────
+    // We need ChainInfo for the SaltScheme.  We can skip — or gracefully
+    // survive a failed — server call when the local config has sql-config
+    // and either: (a) no salt epochs (→ NO_SALT), or (b) salt epochs plus
+    // an explicit salt_scheme.  The latter lets queries be tested against
+    // a chain that hasn't been registered on the server yet.
+    Optional<ChainInfo> maybeInfo = client != null ? client.getInfo() : Optional.empty();
+    boolean localDryRunCapable = localCfg.sqlConfig().isPresent() &&
+        (localCfg.saltEpochs().isEmpty() || localCfg.saltScheme().isPresent());
+
+    ChainInfo info;
+    if (maybeInfo.isPresent()) {
+      info = maybeInfo.get();
+    } else if (localDryRunCapable) {
+      if (client != null)
+        System.err.println("WARN: chain not found at " + effectiveUrl +
+            "; proceeding with local-only config");
+      SaltScheme scheme = localCfg.saltScheme().orElse(SaltScheme.NO_SALT);
+      info = new ChainInfo(1, Optional.empty(), Optional.empty(), scheme);
+    } else if (localCfg.sqlConfig().isPresent()) {
+      throw new IllegalStateException("'salt_scheme' is required in --local-config " +
+          "when 'salts' are present and the chain isn't resolvable on the server");
+    } else if (client != null) {
+      throw new IllegalStateException("chain not found: " + effectiveUrl);
+    } else {
+      throw new IllegalStateException("chain URL required; pass as argument, or configure " +
+          "a resolvable chain_url (or --base-chain-url) in --local-config");
+    }
+
+    // ── salt ──────────────────────────────────────────────────────────────────
+    TableSalt salt = null;
+    if (info.saltScheme().hasSalt()) {
+      var localSalt = localCfg.tableSalt();
+      if (localSalt.isPresent()) {
+        salt = localSalt.get();
+      } else {
+        if (effectiveToken == null)
+          throw new IllegalStateException("bearer token required to fetch salts; " +
+              "use --token or add 'access_token' to --local-config");
+        if (client == null)
+          throw new IllegalStateException("a 'salts' array is required in --local-config " +
+              "since no chain URL is configured to fetch it from");
+        salt = client.getSalts(effectiveToken);
+      }
+    }
+
+    // ── sql-config ────────────────────────────────────────────────────────────
+    SqlConfig sqlCfg;
+    if (localCfg.sqlConfig().isPresent()) {
+      sqlCfg = localCfg.sqlConfig().get();
+    } else {
+      if (effectiveToken == null)
+        throw new IllegalStateException("bearer token required to fetch sql-config; " +
+            "use --token or add sql-config fields to --local-config");
+      if (client == null)
+        throw new IllegalStateException("sql-config fields are required in --local-config " +
+            "since no chain URL is configured to fetch them from");
+      sqlCfg = client.getSqlConfig(effectiveToken);
+    }
+
+    return new ResolvedQueryConfig(info.saltScheme(), salt, sqlCfg);
   }
 
   /** Builds a {@link DbConfig} from the {@code --jdbc-url} / {@code --jdbc-driver-jar} CLI flags. */
@@ -1619,7 +1847,7 @@ public class Main implements Runnable {
   }
 
   /** Builds JDBC connection {@link Properties} from the {@code --jdbc-user} / {@code --jdbc-pass} CLI flags. */
-  private static Properties cliJdbcProps(String jdbcUser, char[] jdbcPass) {
+  static Properties cliJdbcProps(String jdbcUser, char[] jdbcPass) {
     Properties props = new Properties();
     if (jdbcUser != null)                        props.setProperty("user",     jdbcUser);
     if (jdbcPass != null && jdbcPass.length > 0) props.setProperty("password", new String(jdbcPass));
@@ -1635,7 +1863,7 @@ public class Main implements Runnable {
    * case where the local file supplies a complete sql-config and no server call is made),
    * the middle merge is a harmless no-op.
    */
-  private static DbConfig effectiveDbConfig(
+  static DbConfig effectiveDbConfig(
       Optional<DbConfig> primary, ChainConfig localCfg,
       String jdbcUrlOverride, File jdbcDriverJarOverride) {
     return primary.orElse(DbConfig.EMPTY)

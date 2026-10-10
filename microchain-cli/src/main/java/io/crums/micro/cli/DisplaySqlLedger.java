@@ -4,6 +4,7 @@
 package io.crums.micro.cli;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -118,6 +119,39 @@ public class DisplaySqlLedger extends LabeledSqlLedger {
       while (rs.next()) {
         long rn = rs.getLong(1);
         results.add(buildSourceRowFromResultSet(rs, rn, 1));
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Executes a parameterised WHERE-clause query and returns matching source
+   * rows — the same mechanism {@link #query(String)} uses, but binding
+   * {@code args} to the clause's {@code ?} placeholders via a real
+   * {@link PreparedStatement} instead of requiring literal values in
+   * {@code sqlConstraint} itself. Used by the receipt-template DSL, where
+   * bound values are resolved at generation time (see {@code RowSelector}).
+   *
+   * @param sqlConstraint the WHERE predicate, with one {@code ?} per element
+   *                      of {@code args}; the {@code WHERE} keyword is
+   *                      optional and will be stripped if present
+   * @param args          bind values, in order, one per {@code ?}
+   */
+  public List<SourceRow> query(String sqlConstraint, List<Object> args) throws SQLException {
+    String where = sqlConstraint.stripLeading();
+    if (where.regionMatches(true, 0, "where ", 0, 6))
+      where = where.substring(6).stripLeading();
+
+    String sql = displayQueryBase + " WHERE " + where;
+    var results = new ArrayList<SourceRow>();
+    try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+      for (int i = 0; i < args.size(); i++)
+        stmt.setObject(i + 1, args.get(i));
+      try (ResultSet rs = stmt.executeQuery()) {
+        while (rs.next()) {
+          long rn = rs.getLong(1);
+          results.add(buildSourceRowFromResultSet(rs, rn, 1));
+        }
       }
     }
     return results;
