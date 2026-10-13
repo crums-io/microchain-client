@@ -16,7 +16,7 @@ import io.crums.sldg.json.HashEncoding;
 import io.crums.sldg.json.PathPackParser;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.json.SourceRowParser;
-import io.crums.util.Lists;
+import io.crums.util.collections.Lists;
 import io.crums.util.json.JsonEntityParser;
 import io.crums.util.json.JsonParsingException;
 import io.crums.util.json.JsonUtils;

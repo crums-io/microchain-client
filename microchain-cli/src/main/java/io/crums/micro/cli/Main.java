@@ -51,7 +51,7 @@ import io.crums.sldg.src.json.EpochSeedParser;
 import io.crums.sldg.src.json.SaltSchemeParser;
 import io.crums.sldg.src.json.SourceRowParser;
 import io.crums.sldg.src.sql.SqlLedger;
-import io.crums.util.Base64_32;
+import io.crums.util.api.Base64_32;
 import io.crums.util.json.JsonParsingException;
 import io.crums.util.json.JsonPrinter;
 import io.crums.util.json.simple.JSONArray;
