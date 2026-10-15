@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test;
 import io.crums.micro.api.SqlConfig;
 import io.crums.sldg.SldgConstants;
 import io.crums.sldg.src.DataType;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.sql.SqlLedger;
 
@@ -75,7 +74,7 @@ class LedgerFixtureTest {
 
       SqlConfig cfg = parseQueries(SAMPLE_DATA.resolve("ledger-queries.sql"));
 
-      try (SqlLedger ledger = cfg.open(conn, SaltScheme.NO_SALT)) {
+      try (SqlLedger ledger = cfg.open(conn)) {
         assertEquals(6L, ledger.size());
 
         var hashes = new HashSet<ByteBuffer>();

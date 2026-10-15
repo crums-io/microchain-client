@@ -26,8 +26,8 @@ the commitment chain, see below.)
 
 Rather than send raw row-data to the chain server, clients compute the SHA-256 hash
 of each row locally and submit only those hashes. The website's new-chain form defaults
-to salting every column, so no information leaks unless the chain owner opts out; a
-chain's salt scheme is fixed once rows start being committed (see `salt_scheme` below).
+to salting every column, so no information leaks unless the chain owner opts out; whether
+a chain is salted is fixed once rows start being committed (see `salted` below).
 The server appends these
 *input* hashes to a SkipLedger, a compact hash-pointer data structure that records
 both the input- and the computed commitment-hash per row (64-byte block per row). Owing to
@@ -709,24 +709,18 @@ Response fields:
 | `ledger_type` | int | `1` = SQL-backed ledger |
 | `title` | string | Display title (omitted if not set) |
 | `description` | string | (omitted if not set) |
-| `salt_scheme` | object | `{ "salt_code": 0\|1, "cell_indices": [...] }` |
+| `salted` | boolean | Whether every cell in a row is salted; `false` means no cells are |
 
-`cell_indices` lists (zero-based) cell/column positions, the meaning of which flips with
-`salt_code`: it's either the *only* cells salted, or the *only* cells left unsalted.
-
-`salt_code` 1 means *only* the cells listed in `cell_indices` are salted (all others are
-not) — "salt just these indices." `salt_code` 0 means *all* cells are salted *except*
-those listed in `cell_indices` — "salt everything but these indices." An empty
-`cell_indices` array is the degenerate case of either: `salt_code` 1 with no indices
-salts nothing; `salt_code` 0 with no indices salts everything.
+There is no per-column salting: a chain's rows are either entirely salted or
+entirely unsalted.
 
 ---
 
 ### `GET` / `PUT /columns` — column metadata (public read, Bearer write)
 
 Decorative per-column metadata: a human-readable name and optional
-description, keyed by 0-based column index (matching `salt_scheme.cell_indices`
-and `SourceRow.cells()` ordering). Unlike `/sql-config`, `GET` requires no
+description, keyed by 0-based column index (matching
+`SourceRow.cells()` ordering). Unlike `/sql-config`, `GET` requires no
 token — this data is meant to label cells for recipients who hold a source
 row but no bearer token (e.g. future `/verify` receipts, Qute-rendered
 templates).
@@ -959,7 +953,7 @@ in `input_hashes` is a 43-character Base64_32 (URL-safe) encoding of the
 
 ## Dependencies
 
-- **skipledger-base** (`io.crums.sldg.base`) — SkipLedger, PathPack, SaltScheme, TableSalt
+- **skipledger-base** (`io.crums.sldg.base`) — SkipLedger, PathPack, TableSalt
 - **sql-ledger** (`io.crums.sldg.src.sql`) — SqlLedger (local row hashing over JDBC)
 - **jsonimple** (`io.crums.jsonimple`) — lightweight JSON library used for all parsing (except in the Quarkus server)
 - **picocli** 4.7.5 — CLI framework (cli module only)

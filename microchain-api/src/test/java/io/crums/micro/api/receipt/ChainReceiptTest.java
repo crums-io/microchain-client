@@ -20,7 +20,6 @@ import io.crums.sldg.PathPack;
 import io.crums.sldg.SkipLedger;
 import io.crums.sldg.SkipLedgers;
 import io.crums.sldg.salt.TableSalt;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.SourceRowBuilder;
 
@@ -42,10 +41,9 @@ import io.crums.sldg.src.SourceRowBuilder;
  * never "row 1" unless it happens to be a target).</p>
  *
  * <h2>Salt coverage</h2>
- * <p>Only {@link SaltScheme#NO_SALT} and {@link SaltScheme#SALT_ALL} are
- * exercised here, per direction — mixed salt schemes have known issues
- * elsewhere that are to be fixed or simplified away separately, so are
- * out of scope for this test.</p>
+ * <p>Rows are either entirely unsalted or entirely salted — {@code
+ * SourceRow} has no notion of per-column salting (mixed schemes were
+ * dropped as an unneeded feature).</p>
  */
 public class ChainReceiptTest {
 
@@ -61,8 +59,8 @@ public class ChainReceiptTest {
   // ── fixture builders ─────────────────────────────────────────────────────
 
   /** Builds 10 source rows numbered 100-109 using the given salt scheme. */
-  private static List<SourceRow> buildRealRows(SaltScheme scheme, TableSalt salt) {
-    SourceRowBuilder builder = new SourceRowBuilder(scheme, salt);
+  private static List<SourceRow> buildRealRows(TableSalt salt) {
+    SourceRowBuilder builder = new SourceRowBuilder(salt);
     List<SourceRow> rows = new ArrayList<>(10);
     for (long no = 100; no <= 109; no++)
       rows.add(builder.buildRow(no, "item-" + no, no * 7L));
@@ -107,7 +105,7 @@ public class ChainReceiptTest {
 
   @Test
   public void testAnchored_noSalt_multiRow_succeeds() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     PathPack pack = anchorPack(rows);
 
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, rows, Optional.of(pack));
@@ -118,7 +116,7 @@ public class ChainReceiptTest {
   @Test
   public void testAnchored_saltAll_multiRow_succeeds() {
     TableSalt salt = new TableSalt(seed(0xAB));
-    List<SourceRow> rows = buildRealRows(SaltScheme.SALT_ALL, salt);
+    List<SourceRow> rows = buildRealRows(salt);
     PathPack pack = anchorPack(rows);
 
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, rows, Optional.of(pack));
@@ -131,7 +129,7 @@ public class ChainReceiptTest {
     // The ledger carries the full 100-109 batch (so row 103 really is the
     // ledger's row 103, not just the 1st row appended); only row 103 is
     // revealed in the receipt.
-    List<SourceRow> allRows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> allRows = buildRealRows(null);
     SkipLedger ledger = buildLedger(allRows);
     List<SourceRow> oneRow = List.of(allRows.get(3)); // row 103, alone
     PathPack pack = anchorPack(ledger, oneRow);
@@ -144,7 +142,7 @@ public class ChainReceiptTest {
   @Test
   public void testAnchored_saltAll_singleRow_succeeds() {
     TableSalt salt = new TableSalt(seed(0xCD));
-    List<SourceRow> allRows = buildRealRows(SaltScheme.SALT_ALL, salt);
+    List<SourceRow> allRows = buildRealRows(salt);
     SkipLedger ledger = buildLedger(allRows);
     List<SourceRow> oneRow = List.of(allRows.get(7)); // row 107, alone
     PathPack pack = anchorPack(ledger, oneRow);
@@ -158,12 +156,12 @@ public class ChainReceiptTest {
 
   @Test
   public void testAnchored_tamperedMiddleRow_throwsHashConflict() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     PathPack pack = anchorPack(rows); // path committed against the ORIGINAL rows
 
     // Swap in a row with different cell content (and thus a different hash)
     // at the same row number — simulates a tampered/mismatched receipt.
-    SourceRowBuilder builder = new SourceRowBuilder(SaltScheme.NO_SALT, null);
+    SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow tampered = builder.buildRow(104L, "TAMPERED", -1L);
     List<SourceRow> badRows = new ArrayList<>(rows);
     badRows.set(4, tampered); // rows[4].no() == 104
@@ -174,10 +172,10 @@ public class ChainReceiptTest {
 
   @Test
   public void testAnchored_tamperedLastRow_throwsHashConflict() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     PathPack pack = anchorPack(rows);
 
-    SourceRowBuilder builder = new SourceRowBuilder(SaltScheme.NO_SALT, null);
+    SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow tampered = builder.buildRow(109L, "TAMPERED", -1L);
     List<SourceRow> badRows = new ArrayList<>(rows);
     badRows.set(9, tampered); // rows[9].no() == 109, the last row
@@ -188,10 +186,10 @@ public class ChainReceiptTest {
 
   @Test
   public void testAnchored_tamperedFirstRow_throwsHashConflict() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     PathPack pack = anchorPack(rows);
 
-    SourceRowBuilder builder = new SourceRowBuilder(SaltScheme.NO_SALT, null);
+    SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow tampered = builder.buildRow(100L, "TAMPERED", -1L);
     List<SourceRow> badRows = new ArrayList<>(rows);
     badRows.set(0, tampered); // rows[0].no() == 100, the first row
@@ -211,7 +209,7 @@ public class ChainReceiptTest {
 
   @Test
   public void testOutOfOrderRowsThrows() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     List<SourceRow> shuffled = new ArrayList<>(rows);
     // swap two rows out of ascending order
     SourceRow tmp = shuffled.get(0);
@@ -224,7 +222,7 @@ public class ChainReceiptTest {
 
   @Test
   public void testDuplicateRowNumbersThrows() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     List<SourceRow> withDup = new ArrayList<>(rows);
     withDup.set(1, withDup.get(0)); // duplicate row no. at index 1
 
@@ -237,7 +235,7 @@ public class ChainReceiptTest {
 
   @Test
   public void testDraft_noStateRequiredForConstruction() {
-    List<SourceRow> rows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> rows = buildRealRows(null);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, rows, Optional.empty());
     assertFalse(cr.isAnchored());
   }
@@ -247,13 +245,13 @@ public class ChainReceiptTest {
 
   @Test
   public void testMultiChainReceipt_bothAnchored() {
-    List<SourceRow> ordersRows = buildRealRows(SaltScheme.NO_SALT, null);
+    List<SourceRow> ordersRows = buildRealRows(null);
     ChainReceipt orders = new ChainReceipt(
         "https://micro.crums.io/bikeshop/orders", ordersRows,
         Optional.of(anchorPack(ordersRows)));
 
     TableSalt salt = new TableSalt(seed(0x42));
-    List<SourceRow> customersRows = buildRealRows(SaltScheme.SALT_ALL, salt);
+    List<SourceRow> customersRows = buildRealRows(salt);
     ChainReceipt customers = new ChainReceipt(
         "https://micro.crums.io/bikeshop/customers", customersRows,
         Optional.of(anchorPack(customersRows)));

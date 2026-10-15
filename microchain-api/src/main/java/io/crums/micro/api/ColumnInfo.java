@@ -16,8 +16,7 @@ import io.crums.util.json.simple.JSONObject;
 /**
  * Decorative metadata for a single SQL ledger column: a human-readable name
  * and optional description, keyed by the column's 0-based position in
- * {@code SourceRow.cells()} (the same indexing used by {@link
- * io.crums.sldg.src.SaltScheme#cellIndices()}).
+ * {@code SourceRow.cells()}.
  *
  * <p>Public, non-sensitive information — set by the chain owner via
  * {@code PUT /{user}/{chain}/columns} and readable by anyone via

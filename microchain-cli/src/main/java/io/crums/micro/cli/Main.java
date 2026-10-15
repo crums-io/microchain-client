@@ -26,7 +26,6 @@ import java.util.Properties;
 import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
-import java.util.stream.Collectors;
 
 import io.crums.micro.api.ChainInfo;
 import io.crums.micro.api.ColumnInfo;
@@ -45,10 +44,8 @@ import io.crums.sldg.salt.EpochedTableSalt.EpochSeed;
 import io.crums.sldg.salt.TableSalt;
 import io.crums.sldg.src.Cell;
 import io.crums.sldg.src.DataType;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.json.EpochSeedParser;
-import io.crums.sldg.src.json.SaltSchemeParser;
 import io.crums.sldg.src.json.SourceRowParser;
 import io.crums.sldg.src.sql.SqlLedger;
 import io.crums.util.api.Base64_32;
@@ -307,7 +304,7 @@ public class Main implements Runnable {
 
       // salt: local config wins over server call
       TableSalt salt = null;
-      if (info.saltScheme().hasSalt()) {
+      if (info.salted()) {
         var localSalt = localCfg.tableSalt();
         salt = localSalt.isPresent() ? localSalt.get() : client.getSalts(effectiveToken);
       }
@@ -337,9 +334,7 @@ public class Main implements Runnable {
       Properties props = cliJdbcProps(jdbcUser, jdbcPass);
 
       try (Connection conn = effectiveCfg.openConnection(props.isEmpty() ? null : props);
-           SqlLedger ledger = salt != null
-               ? effectiveCfg.open(conn, info.saltScheme(), salt)
-               : effectiveCfg.open(conn, info.saltScheme())) {
+           SqlLedger ledger = effectiveCfg.open(conn, salt)) {
 
         long total = ledger.size();
         long ceiling;
@@ -791,23 +786,9 @@ public class Main implements Runnable {
           (info.ledgerType() == 1 ? "SQL ledger" : "log-file ledger"));
       info.title().ifPresent(t       -> System.out.println("Title      : " + t));
       info.description().ifPresent(d -> System.out.println("Description: " + d));
-      System.out.println("Salt       : " + describeSaltScheme(info.saltScheme()));
+      System.out.println("Salt       : " + (info.salted() ? "yes" : "no"));
       return 0;
     }
-  }
-
-  /** Human-readable summary of a {@link SaltScheme} for the {@code info} command. */
-  private static String describeSaltScheme(SaltScheme scheme) {
-    if (!scheme.hasSalt())
-      return "no";
-    if (scheme.saltAll())
-      return "yes (all columns)";
-    String cols = Arrays.stream(scheme.cellIndices())
-        .mapToObj(String::valueOf)
-        .collect(Collectors.joining(", "));
-    return scheme.isPositive()
-        ? "yes (only columns " + cols + " (zero-based))"
-        : "yes (all columns except " + cols + " (zero-based))";
   }
 
 
@@ -945,7 +926,7 @@ public class Main implements Runnable {
           "",
           """
           When --local-config already supplies sql-config and a resolvable salt \
-          story (unsalted, or salted with 'salt_scheme' + 'salts' both present \
+          story (unsalted, or salted with 'salted' + 'salts' both present \
           locally), falls back to that local-only config if the chain isn't \
           (yet) found at the server — handy for testing queries against a chain \
           that hasn't been registered yet.""",
@@ -1055,7 +1036,6 @@ public class Main implements Runnable {
         System.err.println("ERROR: " + e.getMessage());
         return 1;
       }
-      SaltScheme saltScheme = rqc.saltScheme();
       TableSalt  salt       = rqc.salt();
       SqlConfig  sqlCfg     = rqc.sqlConfig();
 
@@ -1090,14 +1070,14 @@ public class Main implements Runnable {
         if (rowNo != null) {
           try (LabeledSqlLedger ledger = LabeledSqlLedger.open(
               conn, effectiveCfg.rowCountQuery(), effectiveCfg.byNoQuery(),
-              saltScheme, salt)) {
+              salt)) {
             rows = List.of(ledger.getSourceRow(rowNo));
             jdbcLabels = ledger.columnLabels();
           }
         } else {
           try (DisplaySqlLedger ledger = DisplaySqlLedger.open(
               conn, effectiveCfg.rowCountQuery(), effectiveCfg.byNoQuery(),
-              saltScheme, salt)) {
+              salt)) {
             rows = ledger.query(whereClause);
             jdbcLabels = ledger.columnLabels();
           }
@@ -1169,7 +1149,7 @@ public class Main implements Runnable {
           for (int i = 0; i < cells.size(); i++) {
             DataType t = types.get(i);
             String label = i < columnLabels.size() ? columnLabels.get(i) : null;
-            // 0-based, matching --salt-scheme and mchain columns'
+            // 0-based, matching mchain columns'
             // --name/--description/--clear index convention.
             if (label == null)
               System.out.printf(noLabelFmt, i, vals[i], t);
@@ -1235,7 +1215,7 @@ public class Main implements Runnable {
             """
             Options not supplied are left unchanged.  Invoke multiple times to build \
             the file incrementally.  --chain-url, --by-no-query, --row-count-query, \
-            --salt-seed, and --salt-scheme configure one specific chain and require \
+            --salt-seed, and --salted configure one specific chain and require \
             --chain <alias>; the rest (--jdbc-url, --token, --timezone, ...) may be \
             set with or without --chain — without it, they become shared defaults \
             any chain not overriding them falls back to.  A typical \
@@ -1331,19 +1311,14 @@ public class Main implements Runnable {
           })
       String saltSeed;
 
-      @Option(names = {"--salt-scheme"}, paramLabel = "<scheme>",
+      @Option(names = {"--salted"}, paramLabel = "<true|false>",
           description = {
-              "Cell salting scheme.  Format: <base>[:<except-indices>]",
-              "  all        every cell is salted",
-              "  none       no cells are salted",
-              "  all:0,2    all salted except columns 0 and 2",
-              "  none:1,3   only columns 1 and 3 are salted",
+              "Whether every cell in this chain's rows is salted.",
               """
-              Column indices are 0-based.  Stored as 'salt_scheme' in the \
-              config file; required for offline 'mchain rows' when 'salts' \
-              are also present."""
+              Stored as 'salted' in the config file; required for offline \
+              'mchain rows' when 'salts' are also present."""
           })
-      String saltSchemeStr;
+      Boolean salted;
 
       @Override
       public Integer call() throws Exception {
@@ -1352,9 +1327,9 @@ public class Main implements Runnable {
           return 1;
         }
         if (chainAlias == null && (chainUrl != null || byNoQuery != null || rowCountQuery != null
-            || saltSeed != null || saltSchemeStr != null)) {
+            || saltSeed != null || salted != null)) {
           System.err.println("ERROR: --chain-url, --by-no-query, --row-count-query, --salt-seed, " +
-              "and --salt-scheme configure one specific chain and require --chain <alias>");
+              "and --salted configure one specific chain and require --chain <alias>");
           return 1;
         }
         Path path = parent.configFile.toPath();
@@ -1426,16 +1401,7 @@ public class Main implements Runnable {
           target.put(SALTS_KEY, saltsArr);
         }
 
-        if (saltSchemeStr != null) {
-          SaltScheme scheme;
-          try {
-            scheme = parseSaltScheme(saltSchemeStr);
-          } catch (IllegalArgumentException e) {
-            System.err.println("ERROR: --salt-scheme: " + e.getMessage());
-            return 1;
-          }
-          target.put(SALT_SCHEME_KEY, SaltSchemeParser.PARSER.toJsonObject(scheme));
-        }
+        if (salted != null) target.put(SALTED_KEY, salted);
 
         // Write the (possibly new/updated) per-chain entry back into 'chains'
         if (chainAlias != null) {
@@ -1651,41 +1617,6 @@ public class Main implements Runnable {
   // ── helpers ──────────────────────────────────────────────────────────────────
 
   /**
-   * Parses a {@code --salt-scheme} value of the form {@code <base>[:<except-indices>]}
-   * where base is {@code all} or {@code none} and the optional colon-separated suffix
-   * is a comma-separated list of 0-based column indices that are excepted from the base.
-   */
-  private static SaltScheme parseSaltScheme(String s) {
-    s = s.strip();
-    int colonIdx = s.indexOf(':');
-    String base;
-    int[] exceptions;
-    if (colonIdx < 0) {
-      base = s;
-      exceptions = new int[0];
-    } else {
-      base = s.substring(0, colonIdx).strip();
-      String excPart = s.substring(colonIdx + 1).strip();
-      String[] parts = excPart.split(",");
-      exceptions = new int[parts.length];
-      for (int i = 0; i < parts.length; i++) {
-        try {
-          exceptions[i] = Integer.parseInt(parts[i].strip());
-        } catch (NumberFormatException e) {
-          throw new IllegalArgumentException(
-              "invalid cell index '" + parts[i].strip() + "'");
-        }
-      }
-    }
-    return switch (base.toLowerCase()) {
-      case "all"  -> SaltScheme.of(exceptions, false); // all except listed
-      case "none" -> SaltScheme.of(exceptions, true);  // only listed are salted
-      default     -> throw new IllegalArgumentException(
-          "expected 'all' or 'none', got '" + base + "'");
-    };
-  }
-
-  /**
    * Loads {@code localConfigFile} (if given) as a {@link LocalConfig} and
    * resolves the single chain to operate on: {@code chainAlias} when given,
    * else the file's sole chain when it has exactly one. Used by every
@@ -1753,11 +1684,11 @@ public class Main implements Runnable {
     return new ChainClient(base, parts[n-2], parts[n-1], HttpClient.newHttpClient());
   }
 
-  /** Salt scheme, table salt, and SQL ledger config needed to query one chain locally. */
-  record ResolvedQueryConfig(SaltScheme saltScheme, TableSalt salt, SqlConfig sqlConfig) { }
+  /** Table salt (or {@code null} if unsalted) and SQL ledger config needed to query one chain locally. */
+  record ResolvedQueryConfig(TableSalt salt, SqlConfig sqlConfig) { }
 
   /**
-   * Resolves the {@link SaltScheme}, {@link TableSalt}, and {@link SqlConfig} needed
+   * Resolves the {@link TableSalt} and {@link SqlConfig} needed
    * to open a local ledger for one chain — the same local-config-first /
    * server-fallback logic {@code mchain rows} uses (see that command's
    * description), factored out for reuse by the receipt-template resolver,
@@ -1776,14 +1707,14 @@ public class Main implements Runnable {
       throws IOException, InterruptedException {
 
     // ── chain info (public) ──────────────────────────────────────────────────
-    // We need ChainInfo for the SaltScheme.  We can skip — or gracefully
-    // survive a failed — server call when the local config has sql-config
-    // and either: (a) no salt epochs (→ NO_SALT), or (b) salt epochs plus
-    // an explicit salt_scheme.  The latter lets queries be tested against
-    // a chain that hasn't been registered on the server yet.
+    // We need ChainInfo to know whether the chain is salted.  We can skip — or
+    // gracefully survive a failed — server call when the local config has
+    // sql-config and either: (a) no salt epochs (→ unsalted), or (b) salt
+    // epochs plus an explicit 'salted' setting.  The latter lets queries be
+    // tested against a chain that hasn't been registered on the server yet.
     Optional<ChainInfo> maybeInfo = client != null ? client.getInfo() : Optional.empty();
     boolean localDryRunCapable = localCfg.sqlConfig().isPresent() &&
-        (localCfg.saltEpochs().isEmpty() || localCfg.saltScheme().isPresent());
+        (localCfg.saltEpochs().isEmpty() || localCfg.salted().isPresent());
 
     ChainInfo info;
     if (maybeInfo.isPresent()) {
@@ -1792,10 +1723,10 @@ public class Main implements Runnable {
       if (client != null)
         System.err.println("WARN: chain not found at " + effectiveUrl +
             "; proceeding with local-only config");
-      SaltScheme scheme = localCfg.saltScheme().orElse(SaltScheme.NO_SALT);
-      info = new ChainInfo(1, Optional.empty(), Optional.empty(), scheme);
+      boolean salted = localCfg.salted().orElse(false);
+      info = new ChainInfo(1, Optional.empty(), Optional.empty(), salted);
     } else if (localCfg.sqlConfig().isPresent()) {
-      throw new IllegalStateException("'salt_scheme' is required in --local-config " +
+      throw new IllegalStateException("'salted' is required in --local-config " +
           "when 'salts' are present and the chain isn't resolvable on the server");
     } else if (client != null) {
       throw new IllegalStateException("chain not found: " + effectiveUrl);
@@ -1806,7 +1737,7 @@ public class Main implements Runnable {
 
     // ── salt ──────────────────────────────────────────────────────────────────
     TableSalt salt = null;
-    if (info.saltScheme().hasSalt()) {
+    if (info.salted()) {
       var localSalt = localCfg.tableSalt();
       if (localSalt.isPresent()) {
         salt = localSalt.get();
@@ -1835,7 +1766,7 @@ public class Main implements Runnable {
       sqlCfg = client.getSqlConfig(effectiveToken);
     }
 
-    return new ResolvedQueryConfig(info.saltScheme(), salt, sqlCfg);
+    return new ResolvedQueryConfig(salt, sqlCfg);
   }
 
   /** Builds a {@link DbConfig} from the {@code --jdbc-url} / {@code --jdbc-driver-jar} CLI flags. */

@@ -11,7 +11,6 @@ import java.util.Optional;
 import java.util.Properties;
 
 import io.crums.sldg.salt.TableSalt;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.sql.SqlLedger;
 import io.crums.util.json.JsonEntityParser;
 import io.crums.util.json.JsonParsingException;
@@ -28,12 +27,12 @@ import io.crums.util.json.simple.JSONObject;
  *
  * <h2>Opening an SqlLedger</h2>
  * <pre>{@code
- * SqlConfig  cfg    = SqlConfig.PARSER.toEntity(sqlConfigJson);
- * SaltScheme scheme = ChainInfo.PARSER.toEntity(infoJson).saltScheme();
- * TableSalt  salt   = TableSaltReader.READER.toTableSalt(saltsArr);
+ * SqlConfig cfg  = SqlConfig.PARSER.toEntity(sqlConfigJson);
+ * TableSalt salt = ChainInfo.PARSER.toEntity(infoJson).salted()
+ *     ? TableSaltReader.READER.toTableSalt(saltsArr) : null;
  *
  * try (Connection conn   = cfg.openConnection();
- *      SqlLedger  ledger = cfg.open(conn, scheme, salt)) {
+ *      SqlLedger  ledger = cfg.open(conn, salt)) {
  *     // read rows via ledger.getSourceRow(rowNumber)
  * }
  * }</pre>
@@ -98,22 +97,19 @@ public record SqlConfig(
   // ── SqlLedger factory ─────────────────────────────────────────────────────
 
   /**
-   * Opens a salted {@link SqlLedger} on the given connection.
+   * Opens a {@link SqlLedger} on the given connection.
    *
    * @param connection open JDBC connection (read-only recommended)
-   * @param saltScheme the chain's salt scheme, from {@link ChainInfo#saltScheme()}
-   * @param shaker     the chain's table salt; may be {@code null} when
-   *                   {@code !saltScheme.hasSalt()}
+   * @param shaker     the chain's table salt; {@code null} for an unsalted
+   *                   ledger, from {@link ChainInfo#salted()}
    */
-  public SqlLedger open(
-      Connection connection, SaltScheme saltScheme, TableSalt shaker)
-      throws SQLException {
-    return SqlLedger.open(connection, rowCountQuery(), byNoQuery(), saltScheme, shaker);
+  public SqlLedger open(Connection connection, TableSalt shaker) throws SQLException {
+    return SqlLedger.open(connection, rowCountQuery(), byNoQuery(), shaker);
   }
 
-  /** Opens an unsalted {@link SqlLedger}; convenience for {@code !saltScheme.hasSalt()}. */
-  public SqlLedger open(Connection connection, SaltScheme saltScheme) throws SQLException {
-    return open(connection, saltScheme, null);
+  /** Opens an unsalted {@link SqlLedger}; convenience for {@code open(connection, null)}. */
+  public SqlLedger open(Connection connection) throws SQLException {
+    return open(connection, null);
   }
 
 

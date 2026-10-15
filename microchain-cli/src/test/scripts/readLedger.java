@@ -29,7 +29,6 @@
 
 import io.crums.micro.api.SqlConfig;
 import io.crums.sldg.json.HashEncoding;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.sql.SqlLedger;
 import picocli.CommandLine;
@@ -86,7 +85,7 @@ class readLedger implements Callable<Integer> {
     String url = "jdbc:h2:file:" + db.toAbsolutePath();
 
     try (Connection conn = DriverManager.getConnection(url, "sa", "");
-         SqlLedger ledger = cfg.open(conn, SaltScheme.NO_SALT)) {
+         SqlLedger ledger = cfg.open(conn)) {
 
       long size = ledger.size();
       System.out.println("Ledger size: " + size);

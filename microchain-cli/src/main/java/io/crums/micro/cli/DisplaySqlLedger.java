@@ -14,7 +14,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import io.crums.sldg.salt.TableSalt;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.SourceRow;
 import io.crums.util.TaskStack;
 
@@ -47,8 +46,7 @@ public class DisplaySqlLedger extends LabeledSqlLedger {
    * @param sizeQuery   parameter-free SQL returning the row count
    * @param byNoQuery   single-{@code ?} SQL of the form
    *                    {@code SELECT cols FROM t WHERE pk = ?}
-   * @param scheme      salt scheme
-   * @param salt        table salt; may be {@code null} when {@code !scheme.hasSalt()}
+   * @param salt        table salt; {@code null} for an unsalted ledger
    * @throws IllegalArgumentException if {@code byNoQuery} does not match the
    *                                  expected single-parameter WHERE pattern
    */
@@ -56,7 +54,6 @@ public class DisplaySqlLedger extends LabeledSqlLedger {
       Connection conn,
       String sizeQuery,
       String byNoQuery,
-      SaltScheme scheme,
       TableSalt salt) throws SQLException {
 
     Matcher m = BY_NO_PATTERN.matcher(byNoQuery);
@@ -77,7 +74,7 @@ public class DisplaySqlLedger extends LabeledSqlLedger {
       var byNoStmt  = conn.prepareStatement(byNoQuery);
       closeOnFail.pushClose(byNoStmt);
       var ledger = new DisplaySqlLedger(
-          new Config(sizeStmt, byNoStmt, scheme, salt), conn, base);
+          new Config(sizeStmt, byNoStmt, salt), conn, base);
       closeOnFail.clear();
       return ledger;
     }

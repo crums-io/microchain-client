@@ -18,7 +18,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import io.crums.sldg.salt.EpochedTableSalt.EpochSeed;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.testing.IoTestCase;
 import io.crums.util.json.JsonPrinter;
 import io.crums.util.json.simple.JSONObject;
@@ -56,16 +55,7 @@ public class ChainConfigParserTest extends IoTestCase {
     assertEquals(cfg.sqlConfig(),     cfg2.sqlConfig());
     assertEquals(cfg.looseDbConfig(), cfg2.looseDbConfig());
     assertSaltEpochsEqual(cfg.saltEpochs(), cfg2.saltEpochs());
-    assertSaltSchemeEqual(cfg.saltScheme(), cfg2.saltScheme());
-  }
-
-  private static void assertSaltSchemeEqual(
-      Optional<SaltScheme> expected, Optional<SaltScheme> actual) {
-    assertEquals(expected.isPresent(), actual.isPresent(), "saltScheme presence");
-    if (expected.isEmpty()) return;
-    SaltScheme e = expected.get(), a = actual.get();
-    assertEquals(e.isPositive(), a.isPositive(), "saltScheme isPositive");
-    assertArrayEquals(e.cellIndices(), a.cellIndices(), "saltScheme cellIndices");
+    assertEquals(cfg.salted(), cfg2.salted(), "salted");
   }
 
 
@@ -254,63 +244,43 @@ public class ChainConfigParserTest extends IoTestCase {
   }
 
 
-  // ── salt scheme ───────────────────────────────────────────────────────────────
+  // ── salted ────────────────────────────────────────────────────────────────────
 
   @Test
-  public void testRoundtrip_saltSchemeAll() {
-    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(SaltScheme.SALT_ALL);
+  public void testRoundtrip_saltedTrue() {
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSalted(true);
     assertRoundtrip(cfg);
-    // Verify the JSON contains a salt_scheme object
     JSONObject jObj = PARSER.toJsonObject(cfg);
-    assertTrue(jObj.containsKey(SALT_SCHEME_KEY), "salt_scheme key present");
+    assertTrue(jObj.containsKey(SALTED_KEY), "salted key present");
     JsonPrinter.println(jObj);
   }
 
   @Test
-  public void testRoundtrip_saltSchemeNone() {
-    // Explicit NO_SALT (as opposed to absent saltScheme)
-    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(SaltScheme.NO_SALT);
+  public void testRoundtrip_saltedFalse() {
+    // Explicit false (as opposed to absent salted)
+    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSalted(false);
     assertRoundtrip(cfg);
     JSONObject jObj = PARSER.toJsonObject(cfg);
-    assertTrue(jObj.containsKey(SALT_SCHEME_KEY), "salt_scheme key present");
+    assertTrue(jObj.containsKey(SALTED_KEY), "salted key present");
   }
 
   @Test
-  public void testRoundtrip_saltSchemeOnlySome() {
-    // "none except 1,3" — only columns 1 and 3 are salted (positive, non-empty)
-    SaltScheme scheme = SaltScheme.of(1, 3);
-    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(scheme);
-    assertRoundtrip(cfg);
-    JsonPrinter.println(PARSER.toJsonObject(cfg));
-  }
-
-  @Test
-  public void testRoundtrip_saltSchemeAllExcept() {
-    // "all except 0,2" — all salted except columns 0 and 2 (negative, non-empty)
-    SaltScheme scheme = SaltScheme.ofAllExcept(0, 2);
-    LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY.withSaltScheme(scheme);
-    assertRoundtrip(cfg);
-    JsonPrinter.println(PARSER.toJsonObject(cfg));
-  }
-
-  @Test
-  public void testRoundtrip_saltSchemeWithEpochs() {
-    // Salt scheme alongside salt epochs — the combo needed for fully offline rows
-    SaltScheme scheme = SaltScheme.SALT_ALL;
+  public void testRoundtrip_saltedWithEpochs() {
+    // 'salted' alongside salt epochs — the combo needed for fully offline rows
     List<EpochSeed> epochs = List.of(new EpochSeed(1L, seed(0xAB)));
     LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
-        .withSaltScheme(scheme)
+        .withSalted(true)
         .withSaltEpochs(epochs);
     assertRoundtrip(cfg);
-    assertTrue(cfg.saltScheme().isPresent());
+    assertTrue(cfg.salted().isPresent());
     assertFalse(cfg.saltEpochs().isEmpty());
   }
 
   @Test
-  public void testAbsentSaltSchemeNotSerialized() {
-    // When saltScheme is absent, no salt_scheme key should appear in JSON
+  public void testAbsentSaltedNotSerialized() {
+    // When salted is absent, no 'salted' key should appear in JSON
     JSONObject jObj = PARSER.toJsonObject(LocalConfig.ChainConfig.EMPTY);
-    assertFalse(jObj.containsKey(SALT_SCHEME_KEY), "no salt_scheme key when absent");
+    assertFalse(jObj.containsKey(SALTED_KEY), "no salted key when absent");
   }
 
 

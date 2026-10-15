@@ -4,7 +4,6 @@
 package io.crums.micro.api;
 
 import io.crums.sldg.src.json.EpochSeedParser;
-import io.crums.sldg.src.json.SaltSchemeParser;
 
 /** JSON field name constants shared across all microchain REST API entities. */
 public class ApiConstants {
@@ -23,17 +22,13 @@ public class ApiConstants {
   public static final String LEDGER_TYPE_KEY  = "ledger_type";
   public static final String TITLE_KEY        = "title";
   public static final String DESCRIPTION_KEY  = "description";
-  public static final String SALT_SCHEME_KEY  = "salt_scheme";
+  public static final String SALTED_KEY       = "salted";
 
   // /{user}/{chain}/columns
   public static final String COLUMNS_KEY             = "columns";
   public static final String COLUMN_INDEX_KEY        = "index";
   public static final String COLUMN_NAME_KEY         = "name";
   public static final String COLUMN_DESCRIPTION_KEY  = "description";
-
-  // /{user}/{chain}/info → salt_scheme object  (owned by SaltSchemeParser)
-  public static final String SALT_CODE_KEY    = SaltSchemeParser.SALT_CODE_KEY;
-  public static final String CELL_INDICES_KEY = SaltSchemeParser.CELL_INDICES_KEY;
 
   // /{user}/{chain}/salts  (owned by EpochSeedParser)
   public static final String SEED_START_KEY = EpochSeedParser.SEED_START_KEY;

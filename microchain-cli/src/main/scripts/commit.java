@@ -300,7 +300,7 @@ class commit implements Callable<Integer> {
 
     // salt: local config wins over server call
     TableSalt salt = null;
-    if (info.saltScheme().hasSalt()) {
+    if (info.salted()) {
       var localSalt = localCfg.tableSalt();
       salt = localSalt.isPresent() ? localSalt.get() : client.getSalts(effectiveToken);
     }
@@ -337,9 +337,7 @@ class commit implements Callable<Integer> {
       props.setProperty("password", new String(jdbcPass));
 
     try (Connection conn = effectiveCfg.openConnection(props.isEmpty() ? null : props);
-         SqlLedger ledger = salt != null
-             ? effectiveCfg.open(conn, info.saltScheme(), salt)
-             : effectiveCfg.open(conn, info.saltScheme())) {
+         SqlLedger ledger = effectiveCfg.open(conn, salt)) {
 
       long total = ledger.size();
       long ceiling;

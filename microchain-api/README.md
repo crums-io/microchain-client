@@ -42,12 +42,12 @@ URL.  Given the three read-only endpoint responses, a local `SqlLedger` can be
 opened to hash rows before committing them:
 
 ```java
-SqlConfig  cfg    = SqlConfig.PARSER.toEntity(sqlConfigJson);
-SaltScheme scheme = ChainInfo.PARSER.toEntity(infoJson).saltScheme();
-TableSalt  salt   = TableSaltReader.READER.toTableSalt(saltsArr);
+SqlConfig cfg  = SqlConfig.PARSER.toEntity(sqlConfigJson);
+TableSalt salt = ChainInfo.PARSER.toEntity(infoJson).salted()
+    ? TableSaltReader.READER.toTableSalt(saltsArr) : null;
 
 try (Connection conn   = cfg.openConnection();
-     SqlLedger  ledger = cfg.open(conn, scheme, salt)) {
+     SqlLedger  ledger = cfg.open(conn, salt)) {
     // hash rows via ledger.getSourceRow(rowNumber)
 }
 ```

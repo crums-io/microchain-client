@@ -20,9 +20,7 @@ import io.crums.micro.api.receipt.ReceiptTemplate;
 import io.crums.sldg.salt.EpochedTableSalt;
 import io.crums.sldg.salt.EpochedTableSalt.EpochSeed;
 import io.crums.sldg.salt.TableSalt;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.json.EpochSeedParser;
-import io.crums.sldg.src.json.SaltSchemeParser;
 import io.crums.util.json.JsonEntityParser;
 import io.crums.util.json.JsonParsingException;
 import io.crums.util.json.JsonUtils;
@@ -149,7 +147,7 @@ public record LocalConfig(
 
     return new ChainConfig(
         effChainUrl, effToken, effSqlConfig, effLooseDb,
-        chainCfg.saltEpochs(), chainCfg.saltScheme());
+        chainCfg.saltEpochs(), chainCfg.salted());
   }
 
   /**
@@ -277,9 +275,9 @@ public record LocalConfig(
    *                      empty when {@code sqlConfig} is present
    * @param saltEpochs    epoch seeds from the {@code salts} array; empty when the
    *                      key is absent — skips {@code GET /salts} when non-empty
-   * @param saltScheme    cell salting scheme; when present alongside
-   *                      {@link #saltEpochs()}, enables fully offline operation
-   *                      without fetching {@code GET /info} from the server
+   * @param salted        whether this chain's cells are salted; when present
+   *                      alongside {@link #saltEpochs()}, enables fully offline
+   *                      operation without fetching {@code GET /info} from the server
    */
   public record ChainConfig(
       Optional<String>     chainUrl,
@@ -287,7 +285,7 @@ public record LocalConfig(
       Optional<SqlConfig>  sqlConfig,
       Optional<DbConfig>   looseDbConfig,
       List<EpochSeed>      saltEpochs,
-      Optional<SaltScheme> saltScheme) {
+      Optional<Boolean>    salted) {
 
     /** Sentinel representing an entirely absent chain config. */
     public static final ChainConfig EMPTY = new ChainConfig(
@@ -332,11 +330,11 @@ public record LocalConfig(
     // ── Wither methods ──────────────────────────────────────────────────────
 
     public ChainConfig withChainUrl(String url) {
-      return new ChainConfig(Optional.of(url), accessToken, sqlConfig, looseDbConfig, saltEpochs, saltScheme);
+      return new ChainConfig(Optional.of(url), accessToken, sqlConfig, looseDbConfig, saltEpochs, salted);
     }
 
     public ChainConfig withAccessToken(String token) {
-      return new ChainConfig(chainUrl, Optional.of(token), sqlConfig, looseDbConfig, saltEpochs, saltScheme);
+      return new ChainConfig(chainUrl, Optional.of(token), sqlConfig, looseDbConfig, saltEpochs, salted);
     }
 
     /**
@@ -344,7 +342,7 @@ public record LocalConfig(
      * (its values are now embedded in {@code cfg}).
      */
     public ChainConfig withSqlConfig(SqlConfig cfg) {
-      return new ChainConfig(chainUrl, accessToken, Optional.of(cfg), Optional.empty(), saltEpochs, saltScheme);
+      return new ChainConfig(chainUrl, accessToken, Optional.of(cfg), Optional.empty(), saltEpochs, salted);
     }
 
     /**
@@ -354,16 +352,16 @@ public record LocalConfig(
     public ChainConfig withDbConfig(DbConfig db) {
       if (sqlConfig.isPresent())
         return new ChainConfig(chainUrl, accessToken,
-            Optional.of(sqlConfig.get().withDbConfig(db)), Optional.empty(), saltEpochs, saltScheme);
-      return new ChainConfig(chainUrl, accessToken, Optional.empty(), Optional.of(db), saltEpochs, saltScheme);
+            Optional.of(sqlConfig.get().withDbConfig(db)), Optional.empty(), saltEpochs, salted);
+      return new ChainConfig(chainUrl, accessToken, Optional.empty(), Optional.of(db), saltEpochs, salted);
     }
 
     public ChainConfig withSaltEpochs(List<EpochSeed> epochs) {
-      return new ChainConfig(chainUrl, accessToken, sqlConfig, looseDbConfig, epochs, saltScheme);
+      return new ChainConfig(chainUrl, accessToken, sqlConfig, looseDbConfig, epochs, salted);
     }
 
-    public ChainConfig withSaltScheme(SaltScheme scheme) {
-      return new ChainConfig(chainUrl, accessToken, sqlConfig, looseDbConfig, saltEpochs, Optional.of(scheme));
+    public ChainConfig withSalted(boolean salted) {
+      return new ChainConfig(chainUrl, accessToken, sqlConfig, looseDbConfig, saltEpochs, Optional.of(salted));
     }
 
 
@@ -383,7 +381,7 @@ public record LocalConfig(
         return db.isPresent() ? sc.withDbConfig(db.get().resolve(configDir)) : sc;
       });
       Optional<DbConfig> resolvedLoose = looseDbConfig.map(db -> db.resolve(configDir));
-      return new ChainConfig(chainUrl, accessToken, resolvedSql, resolvedLoose, saltEpochs, saltScheme);
+      return new ChainConfig(chainUrl, accessToken, resolvedSql, resolvedLoose, saltEpochs, salted);
     }
 
 
@@ -399,8 +397,8 @@ public record LocalConfig(
        * When only {@link ChainConfig#looseDbConfig()} is present, those JDBC
        * fields are injected via {@link DbConfig.Parser#injectEntity}.
        * Salt epochs go under {@link ApiConstants#SALTS_KEY}.
-       * The salt scheme, when present, goes under {@link ApiConstants#SALT_SCHEME_KEY}
-       * as a nested object.</p>
+       * Whether cells are salted, when present, goes under
+       * {@link ApiConstants#SALTED_KEY} as a plain boolean.</p>
        */
       @Override
       public JSONObject injectEntity(ChainConfig cfg, JSONObject jObj) {
@@ -411,8 +409,7 @@ public record LocalConfig(
         } else {
           cfg.looseDbConfig().ifPresent(db -> DbConfig.PARSER.injectEntity(db, jObj));
         }
-        cfg.saltScheme().ifPresent(s ->
-            jObj.put(SALT_SCHEME_KEY, SaltSchemeParser.PARSER.toJsonObject(s)));
+        cfg.salted().ifPresent(s -> jObj.put(SALTED_KEY, s));
         if (!cfg.saltEpochs().isEmpty())
           jObj.put(SALTS_KEY, EpochSeedParser.PARSER.toJsonArray(cfg.saltEpochs()));
         return jObj;
@@ -454,12 +451,12 @@ public record LocalConfig(
         if (saltsVal instanceof JSONArray arr)
           saltEpochs = EpochSeedParser.PARSER.toEntityList(arr);
 
-        Optional<SaltScheme> saltScheme = Optional.empty();
-        Object ssVal = jObj.get(SALT_SCHEME_KEY);
-        if (ssVal instanceof JSONObject ssObj)
-          saltScheme = Optional.of(SaltSchemeParser.PARSER.toEntity(ssObj));
+        Optional<Boolean> salted = Optional.empty();
+        Object saltedVal = jObj.get(SALTED_KEY);
+        if (saltedVal instanceof Boolean b)
+          salted = Optional.of(b);
 
-        return new ChainConfig(chainUrl, token, sqlConfig, looseDbConfig, saltEpochs, saltScheme);
+        return new ChainConfig(chainUrl, token, sqlConfig, looseDbConfig, saltEpochs, salted);
       }
     }
   }

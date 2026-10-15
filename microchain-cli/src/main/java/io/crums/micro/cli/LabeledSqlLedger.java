@@ -10,7 +10,6 @@ import java.sql.SQLException;
 import java.util.List;
 
 import io.crums.sldg.salt.TableSalt;
-import io.crums.sldg.src.SaltScheme;
 import io.crums.sldg.src.sql.SqlLedger;
 import io.crums.util.TaskStack;
 
@@ -34,14 +33,13 @@ public class LabeledSqlLedger extends SqlLedger {
       Connection connection,
       String sizeQuery,
       String rowByNoQuery,
-      SaltScheme saltScheme,
       TableSalt shaker) throws SQLException {
     try (var closeOnFail = new TaskStack()) {
       PreparedStatement sizeStmt = connection.prepareStatement(sizeQuery);
       closeOnFail.pushClose(sizeStmt);
       PreparedStatement rowStmt = connection.prepareStatement(rowByNoQuery);
       closeOnFail.pushClose(rowStmt);
-      var ledger = new LabeledSqlLedger(new Config(sizeStmt, rowStmt, saltScheme, shaker));
+      var ledger = new LabeledSqlLedger(new Config(sizeStmt, rowStmt, shaker));
       closeOnFail.clear();
       return ledger;
     }

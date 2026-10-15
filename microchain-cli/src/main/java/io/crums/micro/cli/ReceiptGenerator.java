@@ -256,7 +256,7 @@ public class ReceiptGenerator {
     try {
       DisplaySqlLedger ledger = DisplaySqlLedger.open(
           conn, effectiveCfg.rowCountQuery(), effectiveCfg.byNoQuery(),
-          rqc.saltScheme(), rqc.salt());
+          rqc.salt());
       return new OpenLedger(conn, ledger);
     } catch (RuntimeException | SQLException e) {
       conn.close();
