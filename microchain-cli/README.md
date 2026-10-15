@@ -13,9 +13,11 @@ remote microchain and for inspecting source ledger rows locally.
 |---|---|
 | `mchain commit <chain-url>` | Hash new source rows locally and POST them to the chain |
 | `mchain status <chain-url>` | Print the current committed row count |
-| `mchain info <chain-url>` | Print chain metadata (salt scheme, title, description) |
+| `mchain info <chain-url>` | Print chain metadata (salted, title, description) |
 | `mchain rows` | Query source rows from the local SQL ledger |
 | `mchain config <file> set` | Create or update a local config JSON file |
+| `mchain receipt generate` | Generate a draft receipt from a `receipt_templates` entry |
+| `mchain receipt anchor` | Attach a skipledger commitment path to a draft receipt |
 
 Run any command with `--help` for the full option list.
 
