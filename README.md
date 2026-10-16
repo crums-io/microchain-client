@@ -746,6 +746,10 @@ chain's public commitment hash, without re-querying the source database.
 An entry whose chain isn't reachable, or has no committed rows yet, is left
 as a draft with a warning rather than failing the whole command.
 
+`generate`, `anchor`, and `redact` (below) all accept `-o/--output <file>`
+to write the result to a file instead of stdout, and `-k/--compact` to write
+single-line JSON without indentation.
+
 Every chain touched by a template needs the same resolvable `sql-config`
 and salt story (local or server) as `mchain commit` / `mchain rows` —
 nothing about receipt templates changes how a chain itself is configured.
@@ -786,6 +790,13 @@ mchain redact order-1037.json \
 An already-redacted cell is left as-is, and a column index that doesn't
 exist on a given row (e.g. a null row) is silently skipped rather than
 treated as an error.
+
+Matching is per chain entry, independent of the other chains in the
+receipt — there's no assumption that every chain shares a base URL. One
+current limitation: if two chain entries in the same receipt happen to
+share the same trailing path segment (e.g. two different users' `orders`
+chains), a bare `<chain>` alias matches both; there's not yet a way to
+qualify it further.
 
 ---
 

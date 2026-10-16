@@ -1543,6 +1543,14 @@ public class Main implements Runnable {
           description = "Input value(s) bound to the template's first chain, in order.")
       List<String> inputs = List.of();
 
+      @Option(names = {"-o", "--output"}, paramLabel = "<file>",
+          description = "Write the generated receipt here instead of stdout.")
+      File outputFile;
+
+      @Option(names = {"-k", "--compact"},
+          description = "Write compact JSON (no whitespace) instead of indented.")
+      boolean compact;
+
       @Override
       public Integer call() throws Exception {
         LocalConfig cfg;
@@ -1573,7 +1581,7 @@ public class Main implements Runnable {
           return 1;
         }
 
-        JsonPrinter.println(Receipt.PARSER.toJsonObject(receipt));
+        writeJson(Receipt.PARSER.toJsonObject(receipt), compact, outputFile);
         return 0;
       }
     }
@@ -1603,6 +1611,10 @@ public class Main implements Runnable {
       @Option(names = {"-o", "--output"}, paramLabel = "<file>",
           description = "Write the anchored receipt here instead of stdout.")
       File outputFile;
+
+      @Option(names = {"-k", "--compact"},
+          description = "Write compact JSON (no whitespace) instead of indented.")
+      boolean compact;
 
       @Override
       public Integer call() throws Exception {
@@ -1642,13 +1654,7 @@ public class Main implements Runnable {
         }
 
         Receipt anchored = new Receipt(result);
-        String json = JsonPrinter.toJson(Receipt.PARSER.toJsonObject(anchored));
-        if (outputFile != null) {
-          Files.writeString(outputFile.toPath(), json);
-          System.out.println("Wrote: " + outputFile);
-        } else {
-          System.out.println(json);
-        }
+        writeJson(Receipt.PARSER.toJsonObject(anchored), compact, outputFile);
 
         if (anchoredCount < result.size())
           System.err.println("Anchored " + anchoredCount + " of " + result.size() + " chain(s).");
@@ -1706,6 +1712,10 @@ public class Main implements Runnable {
         description = "Write the redacted receipt here instead of stdout.")
     File outputFile;
 
+    @Option(names = {"-k", "--compact"},
+        description = "Write compact JSON (no whitespace) instead of indented.")
+    boolean compact;
+
     @Override
     public Integer call() throws Exception {
       Receipt receipt;
@@ -1755,13 +1765,7 @@ public class Main implements Runnable {
       }
 
       Receipt redacted = new Receipt(result);
-      String json = JsonPrinter.toJson(Receipt.PARSER.toJsonObject(redacted));
-      if (outputFile != null) {
-        Files.writeString(outputFile.toPath(), json);
-        System.out.println("Wrote: " + outputFile);
-      } else {
-        System.out.println(json);
-      }
+      writeJson(Receipt.PARSER.toJsonObject(redacted), compact, outputFile);
       return 0;
     }
 
@@ -1814,6 +1818,22 @@ public class Main implements Runnable {
 
 
   // ── helpers ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Writes {@code jObj} as JSON to {@code outputFile}, or to stdout when
+   * {@code outputFile} is {@code null}. Uses the compact, whitespace-free
+   * form ({@link JSONObject#toJSONString()}) when {@code compact} is true,
+   * else {@link JsonPrinter}'s indented form.
+   */
+  private static void writeJson(JSONObject jObj, boolean compact, File outputFile) throws IOException {
+    String json = compact ? jObj.toJSONString() : JsonPrinter.toJson(jObj);
+    if (outputFile != null) {
+      Files.writeString(outputFile.toPath(), json);
+      System.out.println("Wrote: " + outputFile);
+    } else {
+      System.out.println(json);
+    }
+  }
 
   /**
    * Loads {@code localConfigFile} (if given) as a {@link LocalConfig} and
