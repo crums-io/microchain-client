@@ -86,6 +86,7 @@ import picocli.CommandLine.Spec;
         Main.ColumnsCommand.class,
         Main.ConfigCommand.class,
         Main.ReceiptCommand.class,
+        Main.RedactCommand.class,
         Main.HelpCommand.class
     },
     mixinStandardHelpOptions = true,
@@ -1653,6 +1654,161 @@ public class Main implements Runnable {
           System.err.println("Anchored " + anchoredCount + " of " + result.size() + " chain(s).");
         return 0;
       }
+    }
+  }
+
+
+  // ── redact ───────────────────────────────────────────────────────────────────
+
+  @Command(
+      name = "redact",
+      description = {
+          "Redact individual cells from a receipt, preserving verifiability.",
+          "",
+          """
+          Redacting a cell discards its revealed value while leaving the \
+          row's overall hash unchanged, so a redacted receipt remains fully \
+          verifiable against its (unaltered) commitment path — see the \
+          project README's 'Downstream redactable' section. Safe to apply \
+          to an already-anchored receipt; already-redacted cells are left \
+          as-is.""",
+          "",
+          "Each <chain>:<cols>[:<row>] argument targets one chain; give " +
+          "several for multiple chains, column sets, or specific rows:",
+          "",
+          "  mchain redact receipt.json orders:3 \\",
+          "      orders:2,5:42 -o redacted.json"
+      })
+  static class RedactCommand implements Callable<Integer> {
+
+    @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+    boolean helpRequested;
+
+    @Parameters(index = "0", paramLabel = "<receipt-file>",
+        description = "Receipt JSON file (draft or anchored) to redact.")
+    File receiptFile;
+
+    @Parameters(index = "1..*", paramLabel = "<chain>:<cols>[:<row>]",
+        description = {
+            """
+            Redact 0-based cell indices (comma-separated) from <chain>'s \
+            rows in this receipt. <chain> matches a chain URL's trailing \
+            path segment, or the full URL. Without ':<row>', every row for \
+            that chain is affected; with it, only that row number is. \
+            Give one of these per chain, column set, or row.""",
+            "",
+            "  e.g. orders:3",
+            "       orders:2,5:42"
+        })
+    List<String> redactSpecs = List.of();
+
+    @Option(names = {"-o", "--output"}, paramLabel = "<file>",
+        description = "Write the redacted receipt here instead of stdout.")
+    File outputFile;
+
+    @Override
+    public Integer call() throws Exception {
+      Receipt receipt;
+      try {
+        receipt = Receipt.PARSER.toEntity(receiptFile);
+      } catch (Exception e) {
+        System.err.println("ERROR: cannot read '" + receiptFile + "': " + e.getMessage());
+        return 1;
+      }
+
+      List<RedactSpec> specs;
+      try {
+        specs = RedactSpec.parseAll(redactSpecs);
+      } catch (IllegalArgumentException e) {
+        System.err.println("ERROR: " + e.getMessage());
+        return 1;
+      }
+
+      boolean[] matched = new boolean[specs.size()];
+      List<ChainReceipt> result = new ArrayList<>(receipt.chains().size());
+      for (ChainReceipt cr : receipt.chains()) {
+        String lastSegment = lastPathSegment(cr.chainUrl());
+        List<SourceRow> rows = new ArrayList<>(cr.rows());
+        for (int i = 0; i < specs.size(); i++) {
+          RedactSpec spec = specs.get(i);
+          if (!spec.chain().equals(lastSegment) && !spec.chain().equals(cr.chainUrl()))
+            continue;
+          matched[i] = true;
+          for (int r = 0; r < rows.size(); r++) {
+            SourceRow row = rows.get(r);
+            if (spec.row().isPresent() && !spec.row().get().equals(row.no()))
+              continue;
+            for (int col : spec.cols()) {
+              if (col < row.cells().size())
+                row = row.redact(col);
+            }
+            rows.set(r, row);
+          }
+        }
+        result.add(new ChainReceipt(cr.chainUrl(), rows, cr.state()));
+      }
+
+      for (int i = 0; i < specs.size(); i++) {
+        if (!matched[i])
+          System.err.println(
+              "WARNING: redact spec '" + redactSpecs.get(i) + "' matched no chain in this receipt");
+      }
+
+      Receipt redacted = new Receipt(result);
+      String json = JsonPrinter.toJson(Receipt.PARSER.toJsonObject(redacted));
+      if (outputFile != null) {
+        Files.writeString(outputFile.toPath(), json);
+        System.out.println("Wrote: " + outputFile);
+      } else {
+        System.out.println(json);
+      }
+      return 0;
+    }
+
+    /** One parsed redact-spec argument: {@code <chain>:<cols>[:<row>]}. */
+    private record RedactSpec(String chain, List<Integer> cols, Optional<Long> row) {
+
+      static List<RedactSpec> parseAll(List<String> raw) {
+        List<RedactSpec> out = new ArrayList<>(raw.size());
+        for (String s : raw)
+          out.add(parse(s));
+        return out;
+      }
+
+      private static RedactSpec parse(String s) {
+        String[] parts = s.split(":");
+        if (parts.length < 2 || parts.length > 3)
+          throw new IllegalArgumentException(
+              "malformed redact spec '" + s + "' (expected <chain>:<cols>[:<row>])");
+        String chain = parts[0];
+        if (chain.isEmpty())
+          throw new IllegalArgumentException("malformed redact spec '" + s + "': empty chain");
+
+        List<Integer> cols = new ArrayList<>();
+        try {
+          for (String c : parts[1].split(","))
+            cols.add(Integer.parseInt(c.trim()));
+        } catch (NumberFormatException nfe) {
+          throw new IllegalArgumentException("malformed redact spec '" + s + "': bad column index");
+        }
+        if (cols.isEmpty())
+          throw new IllegalArgumentException("malformed redact spec '" + s + "': no columns given");
+
+        Optional<Long> row = Optional.empty();
+        if (parts.length == 3) {
+          try {
+            row = Optional.of(Long.parseLong(parts[2].trim()));
+          } catch (NumberFormatException nfe) {
+            throw new IllegalArgumentException("malformed redact spec '" + s + "': bad row number");
+          }
+        }
+        return new RedactSpec(chain, cols, row);
+      }
+    }
+
+    private static String lastPathSegment(String url) {
+      int i = url.lastIndexOf('/');
+      return i < 0 ? url : url.substring(i + 1);
     }
   }
 

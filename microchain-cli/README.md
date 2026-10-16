@@ -18,6 +18,7 @@ remote microchain and for inspecting source ledger rows locally.
 | `mchain config <file> set` | Create or update a local config JSON file |
 | `mchain receipt generate` | Generate a draft receipt from a `receipt_templates` entry |
 | `mchain receipt anchor` | Attach a skipledger commitment path to a draft receipt |
+| `mchain redact <receipt-file>` | Redact individual cells from a receipt |
 
 Run any command with `--help` for the full option list.
 

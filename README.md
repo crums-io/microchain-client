@@ -752,6 +752,43 @@ nothing about receipt templates changes how a chain itself is configured.
 
 ---
 
+## Redacting a receipt
+
+A receipt holder can redact individual cells before forwarding it to someone
+else — see [Downstream redactable](#downstream-redactable) above. Redacting
+a cell discards its revealed value but leaves the row's overall hash
+unchanged, so a redacted receipt stays fully verifiable against its
+(unaltered) commitment path; this works whether the receipt is still a
+draft or already anchored.
+
+Say `bikeshop` doesn't want to reveal which staff member (`staff_id`, column
+3) handled an order:
+
+```sh
+mchain redact order-1037.json orders:3 -o order-1037-redacted.json
+```
+
+Each `<chain>:<cols>[:<row>]` argument targets one chain — give as many as
+you need. `<chain>` matches the trailing path segment of a chain's URL (or
+the full URL); `<cols>` is one or more comma-separated 0-based cell indices;
+without a trailing `:<row>`, every row for that chain in the receipt is
+affected, with it, only that one row number is:
+
+```sh
+# Redact staff_id from every orders row in the receipt, and the customer's
+# email (column 2) from row 3 specifically:
+mchain redact order-1037.json \
+    orders:3 \
+    customers:2:3 \
+    -o order-1037-redacted.json
+```
+
+An already-redacted cell is left as-is, and a column index that doesn't
+exist on a given row (e.g. a null row) is silently skipped rather than
+treated as an error.
+
+---
+
 ## REST API reference
 
 All chain endpoints are namespaced under `/{user}/{chain}/`.  In the examples
