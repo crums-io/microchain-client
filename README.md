@@ -818,6 +818,8 @@ below, replace `https://micro.crums.io/bikeshop/orders` with your chain URL and
 | GET | `/{user}/{chain}/salts` | Bearer | Salt epoch seeds (owner only) |
 | GET | `/{user}/{chain}/sql-config` | Bearer | JDBC queries, connection URL, timezone, default lag |
 | POST | `/{user}/{chain}/commit` | Bearer | Append row hashes; receive updated row count |
+| POST | `/{user}/{chain}/verify` | — | Verify submitted source rows against the chain; return an anchored receipt entry |
+| POST | `/_verify` | — | Verify every chain entry in a (possibly multi-chain) draft receipt in one round trip |
 
 ---
 
@@ -859,7 +861,7 @@ Decorative per-column metadata: a human-readable name and optional
 description, keyed by 0-based column index (matching
 `SourceRow.cells()` ordering). Unlike `/sql-config`, `GET` requires no
 token — this data is meant to label cells for recipients who hold a source
-row but no bearer token (e.g. future `/verify` receipts, Qute-rendered
+row but no bearer token (e.g. `/verify` receipts below, Qute-rendered
 templates).
 
 ```sh
@@ -929,6 +931,22 @@ curl "https://micro.crums.io/bikeshop/orders/state?rows=5,11,last&enc=hex"
 | `rows`     | `1,last` | Comma-separated stitch row numbers (1-based) and/or `last` (the latest committed row). At least one token is required. |
 | `enc`      | `b64`    | Hash encoding: `b64` (43-char Base64_32, URL-safe) or `hex` (64-char hex) |
 | `compress` | `1`      | `1` to return a compressed path (if compressible); `0` for a full path |
+
+#### Why `compress=0` exists
+
+A compressed path scales as *O*(log *N*) in storage (*N* = rows committed);
+an uncompressed one as *O*((log *N*)²) — compression works by collapsing
+consecutive skip-hashes that aren't independently needed into fewer, larger
+hops. The tradeoff: an uncompressed path keeps every individual hop's hash
+intact, which is what lets two separately-fetched paths be stitched
+together entirely offline, without going back to the server to re-derive a
+missing hop. A compressed path has already discarded some of that
+intermediate "glue," so it can't always be spliced with another path after
+the fact.
+
+Pass `compress=0` when you expect to combine this path with others offline
+later (the planned `bindle` archiving tool's use case); use the default
+otherwise.
 
 #### Stitch-row expansion
 
@@ -1087,6 +1105,85 @@ in `input_hashes` is a 43-character Base64_32 (URL-safe) encoding of the
 | 404 | Chain not found |
 | 409 | A submitted hash conflicts with an already-recorded row hash |
 | 422 | `start_row` < 1, `input_hashes` empty, or a hash value is malformed |
+
+---
+
+### `POST /verify` — verify submitted rows against the chain (public)
+
+Takes the source rows you already have (possibly with cells redacted — see
+[Redacting a receipt](#redacting-a-receipt)) and asks the chain to
+independently recompute their hashes and compare them against its own
+committed input hashes at those row numbers. On success, returns a
+verified `ChainReceipt`: the same shape `mchain receipt generate`/`anchor`
+produce, with a fresh skipledger commitment path attached — the exact
+mechanism `mchain receipt anchor` uses client-side, just driven from the
+server with the row content as proof instead of trusting the caller's own
+source database.
+
+No Bearer token is required — this is a trustless verification: the only
+thing the caller learns is whether the row content they already had
+matches what's publicly committed, which anyone holding a receipt is
+entitled to check.
+
+```sh
+curl -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"rows": [{"row": 42, "cells": [7, "2026-01-01", 3, 9]}]}' \
+     "https://micro.crums.io/bikeshop/orders/verify?compress=1"
+```
+
+A mismatch at any submitted row, or a row number the chain doesn't have
+yet, fails the whole request rather than returning a partial result.
+
+#### Query parameters
+
+| Parameter  | Default | Description |
+|------------|---------|-------------|
+| `compress` | `1`     | Same tradeoff as `/state`'s `compress` — see [Why `compress=0` exists](#why-compress0-exists) |
+
+**Error responses:**
+
+| HTTP | Condition |
+|---|---|
+| 400 | `compress` is not `0` or `1` |
+| 404 | Chain not found, or doesn't yet have a submitted row number |
+| 409 | A submitted row's hash conflicts with the chain's committed input hash |
+| 422 | Malformed JSON, missing/empty `rows`, or rows not strictly ascending with no duplicates |
+
+---
+
+### `POST /_verify` — verify a multi-chain receipt (public)
+
+The chain-independent counterpart to `/verify`: since a receipt typically
+spans several chains (e.g. `orders`, `order_items`, `customers`), this
+endpoint verifies every chain entry in a submitted draft `Receipt` — same
+JSON shape `mchain receipt generate`/`redact` already produce — against
+this server's own chains, in one round trip. Any `state` already attached
+to a submitted entry is ignored; a fresh one is always computed.
+
+Only chains hosted on *this* server can be verified here, resolved from
+each entry's own `chain_url`. A chain hosted elsewhere still has its own
+`<chain-url>/verify` to fall back on.
+
+```sh
+curl -X POST \
+     -H "Content-Type: application/json" \
+     -d @order-1037-redacted.json \
+     "https://micro.crums.io/_verify?compress=1"
+```
+
+As with `/verify`, any single chain entry's hash conflict or unresolvable
+`chain_url` fails the whole request. The same `compress` query parameter
+applies here too, uniformly to every chain entry's fresh commitment path.
+
+**Error responses:**
+
+| HTTP | Condition |
+|---|---|
+| 400 | `compress` is not `0` or `1` |
+| 404 | A chain entry's `chain_url` doesn't resolve to a chain this server hosts |
+| 409 | A chain entry's row hash conflicts with that chain's committed input hash |
+| 422 | Malformed JSON, no chain entries, or a malformed `chain_url` |
 
 ## Dependencies
 
