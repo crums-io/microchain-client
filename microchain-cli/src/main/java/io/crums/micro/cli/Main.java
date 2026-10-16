@@ -60,8 +60,11 @@ import static io.crums.micro.api.ApiConstants.*;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IVersionProvider;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import picocli.CommandLine.ParameterException;
+import picocli.CommandLine.Spec;
 
 /**
  * Entry point for the mchain CLI.
@@ -83,7 +86,7 @@ import picocli.CommandLine.Parameters;
         Main.ColumnsCommand.class,
         Main.ConfigCommand.class,
         Main.ReceiptCommand.class,
-        CommandLine.HelpCommand.class
+        Main.HelpCommand.class
     },
     mixinStandardHelpOptions = true,
     versionProvider = Main.VersionProvider.class,
@@ -97,6 +100,47 @@ public class Main implements Runnable {
   @Override
   public void run() {
     new CommandLine(new Main()).usage(System.out);
+  }
+
+
+  // ── help ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Replaces {@code picocli.CommandLine.HelpCommand} (registered under every
+   * level of subcommands below) so that a path of subcommand names drills all
+   * the way down to a deeply-nested command, e.g. {@code mchain help receipt
+   * generate}. The picocli built-in only accepts a single name — extra names
+   * are silently dropped, printing the wrong (shallower) command's help with
+   * no indication anything was ignored.
+   */
+  @Command(name = "help", helpCommand = true,
+      description = "Display help information about given subcommand.")
+  static class HelpCommand implements Runnable {
+
+    @Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+    boolean helpRequested;
+
+    @Parameters(arity = "0..*", paramLabel = "COMMAND",
+        description = "The command, and any nested subcommand names, to show help for, " +
+            "e.g. 'receipt generate'.")
+    List<String> commands = List.of();
+
+    @Spec
+    CommandSpec spec;
+
+    @Override
+    public void run() {
+      CommandLine current = spec.parent().commandLine();
+      for (String name : commands) {
+        CommandLine next = current.getSubcommands().get(name);
+        if (next == null) {
+          throw new ParameterException(current,
+              "Unknown subcommand '" + name + "' for '" + current.getCommandName() + "'");
+        }
+        current = next;
+      }
+      current.usage(System.out);
+    }
   }
 
 
@@ -134,7 +178,7 @@ public class Main implements Runnable {
           "Hash new rows from the local database and commit them to the chain.",
           "",
           "Workflow:",
-          "  1. GET /info        → salt scheme",
+          "  1. GET /info        → salted (true/false)",
           "  2. GET /salts       → table salt (token required)",
           "  3. GET /sql-config  → JDBC queries",
           "  4. GET /state       → current committed row count N",
@@ -1187,10 +1231,9 @@ public class Main implements Runnable {
       description = {
           "Create or update a local config file.",
           "",
-          "The 'set' subcommand writes one or more settings into <file>.",
-          "Run 'mchain config set --help' to see all available settings."
+          "The 'set' subcommand writes one or more settings into <file>."
       },
-      subcommands = { Main.ConfigCommand.SetCommand.class, CommandLine.HelpCommand.class })
+      subcommands = { Main.ConfigCommand.SetCommand.class, Main.HelpCommand.class })
   static class ConfigCommand implements Runnable {
 
     @Parameters(index = "0", arity = "0..1", paramLabel = "<file>",
@@ -1425,7 +1468,7 @@ public class Main implements Runnable {
       subcommands = {
           Main.ReceiptCommand.GenerateCommand.class,
           Main.ReceiptCommand.AnchorCommand.class,
-          CommandLine.HelpCommand.class
+          Main.HelpCommand.class
       })
   static class ReceiptCommand implements Runnable {
 
