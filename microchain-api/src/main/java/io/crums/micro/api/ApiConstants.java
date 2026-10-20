@@ -58,5 +58,13 @@ public class ApiConstants {
   public static final String ROWS_KEY  = "rows";
   public static final String STATE_KEY = "state";
 
+  // /{user}/_receipt_templates
+  public static final String TEMPLATE_NAME_KEY         = "name";
+  public static final String TEMPLATE_CONTENT_KEY      = "content";
+  public static final String TEMPLATE_CONTENT_HASH_KEY = "content_hash";
+  public static final String TEMPLATE_VERSION_KEY      = "version";
+  public static final String TEMPLATE_CHAIN_ROW_KEY    = "chain_row_number";
+  public static final String TEMPLATE_PUBLISHED_AT_KEY = "published_at";
+
   private ApiConstants() { }
 }
