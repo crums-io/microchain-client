@@ -18,14 +18,7 @@ import io.crums.sldg.src.SourceRowView;
  * ReceiptRenderSettings} controlling how its cells are displayed. A pure
  * argument type: carries no knowledge of Qute (or any other templating
  * engine) -- that plumbing lives entirely in the unexported {@code
- * io.crums.micro.api.render.engine} package, so swapping the template
- * engine or the PDF library never touches this class's API.
- *
- * <p>A class, not a record: API types meant to evolve across releases
- * shouldn't fix their shape to a canonical constructor's arity the way a
- * record does -- adding a field to a record changes every positional
- * caller; a class can grow via an overload without disturbing existing
- * ones.</p>
+ * io.crums.micro.api.render.engine} package.
  */
 public final class ReceiptViewModel {
 

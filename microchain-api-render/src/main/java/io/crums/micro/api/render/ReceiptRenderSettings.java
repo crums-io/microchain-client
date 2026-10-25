@@ -16,10 +16,7 @@ import io.crums.sldg.json.HashEncoding;
  * <p>One instance is normally shared for the lifetime of a Qute {@code
  * Engine} -- closed over by the {@code cell.display} resolver at
  * engine-configure time -- so changing a setting here takes effect on the
- * next render without rebuilding the engine. Fields are {@code volatile}:
- * this bean is read concurrently by every in-flight render and may be
- * mutated at any time, so plain fields would risk a stale read under the
- * Java Memory Model.</p>
+ * next render without rebuilding the engine. Fields are {@code volatile}.</p>
  */
 public final class ReceiptRenderSettings {
 
