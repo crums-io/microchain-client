@@ -9,8 +9,8 @@
   <artifactId>microchain-http</artifactId>
   <name>${project.groupId}:${project.artifactId}</name>
   <description>
-    HTTP client library for microchain-webservices: implements SkipLedger over
-    the microchain REST API using java.net.http.
+    HTTP client library for the microchain web service: implements SkipLedger
+    over the microchain REST API using java.net.http.
   </description>
 
   <dependencies>

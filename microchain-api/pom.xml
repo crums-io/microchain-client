@@ -10,7 +10,7 @@
   <name>${project.groupId}:${project.artifactId}</name>
   <description>
     Shared REST API contract for microchain endpoints: entity types and JSON parsers
-    used by both microchain-cli (client) and microchain-webservices (server).
+    used by both microchain-cli (client) and the server hosting the microchain.
   </description>
 
   <dependencies>
@@ -19,6 +19,12 @@
       <groupId>io.crums</groupId>
       <artifactId>skipledger-base</artifactId>
       <version>${skipledger.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.crums</groupId>
+      <artifactId>util-common</artifactId>
+      <version>${crums.util}</version>
     </dependency>
 
     <dependency>

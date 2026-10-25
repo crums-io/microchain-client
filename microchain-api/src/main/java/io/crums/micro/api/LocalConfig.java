@@ -16,7 +16,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 
-import io.crums.micro.api.receipt.ReceiptTemplate;
+import io.crums.micro.api.receipt.ReceiptGeneratorTemplate;
 import io.crums.sldg.salt.EpochedTableSalt;
 import io.crums.sldg.salt.EpochedTableSalt.EpochSeed;
 import io.crums.sldg.salt.TableSalt;
@@ -65,7 +65,7 @@ import io.crums.util.json.simple.JSONObject;
  * @param timezone      default timezone, used when a chain doesn't set its own
  * @param defaultLag    default trailing-row lag, used when a chain doesn't set its own
  * @param chains        per-chain configs, keyed by local alias
- * @param receiptTemplates named {@link ReceiptTemplate}s for {@code mchain receipt generate},
+ * @param receiptTemplates named {@link ReceiptGeneratorTemplate}s for {@code mchain receipt generate},
  *                      keyed by template name
  */
 public record LocalConfig(
@@ -75,7 +75,7 @@ public record LocalConfig(
     Optional<String>              timezone,
     Optional<Long>                defaultLag,
     Map<String, ChainConfig>      chains,
-    Map<String, ReceiptTemplate>  receiptTemplates) {
+    Map<String, ReceiptGeneratorTemplate>  receiptTemplates) {
 
   public static final Parser PARSER = new Parser();
 
@@ -98,12 +98,12 @@ public record LocalConfig(
   }
 
   /**
-   * Returns the named {@link ReceiptTemplate}.
+   * Returns the named {@link ReceiptGeneratorTemplate}.
    *
    * @throws NoSuchElementException if {@code name} isn't in {@link #receiptTemplates()}
    */
-  public ReceiptTemplate resolveTemplate(String name) {
-    ReceiptTemplate tmpl = receiptTemplates.get(name);
+  public ReceiptGeneratorTemplate resolveTemplate(String name) {
+    ReceiptGeneratorTemplate tmpl = receiptTemplates.get(name);
     if (tmpl == null)
       throw new NoSuchElementException("no such receipt template: " + name);
     return tmpl;
@@ -182,7 +182,7 @@ public record LocalConfig(
       if (!cfg.receiptTemplates().isEmpty()) {
         JSONObject templatesObj = new JSONObject();
         cfg.receiptTemplates().forEach((name, tmpl) ->
-            templatesObj.put(name, ReceiptTemplate.PARSER.toJsonObject(tmpl)));
+            templatesObj.put(name, ReceiptGeneratorTemplate.PARSER.toJsonObject(tmpl)));
         jObj.put(RECEIPT_TEMPLATES_KEY, templatesObj);
       }
       return jObj;
@@ -224,7 +224,7 @@ public record LocalConfig(
         }
       }
 
-      Map<String, ReceiptTemplate> receiptTemplates = new LinkedHashMap<>();
+      Map<String, ReceiptGeneratorTemplate> receiptTemplates = new LinkedHashMap<>();
       JSONObject templatesObj = JsonUtils.getJsonObject(jObj, RECEIPT_TEMPLATES_KEY, false);
       if (templatesObj != null) {
         for (var entry : templatesObj.entrySet()) {
@@ -232,7 +232,7 @@ public record LocalConfig(
           if (!(entry.getValue() instanceof JSONObject entryObj))
             throw new JsonParsingException(
                 RECEIPT_TEMPLATES_KEY + "." + name + " must be a JSON object");
-          receiptTemplates.put(name, ReceiptTemplate.PARSER.toEntity(entryObj));
+          receiptTemplates.put(name, ReceiptGeneratorTemplate.PARSER.toEntity(entryObj));
         }
       }
 

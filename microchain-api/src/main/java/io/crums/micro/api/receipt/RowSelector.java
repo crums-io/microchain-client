@@ -17,7 +17,7 @@ import io.crums.util.json.simple.JSONArray;
 import io.crums.util.json.simple.JSONObject;
 
 /**
- * One chain's row-selection step within a {@link ReceiptTemplate}.
+ * One chain's row-selection step within a {@link ReceiptGeneratorTemplate}.
  *
  * <h2>Syntax</h2>
  * <p>{@code where} is ordinary, valid SQL — the same shape {@code mchain
@@ -30,7 +30,7 @@ import io.crums.util.json.simple.JSONObject;
  *       already-resolved row</li>
  * </ul>
  * <p>Both forms require {@code alias} to name a chain declared <em>earlier</em>
- * in the same template's {@link ReceiptTemplate#chains()} list, and both
+ * in the same template's {@link ReceiptGeneratorTemplate#chains()} list, and both
  * resolve to "no value" (propagating to zero rows for this entry, never an
  * error) unless that earlier chain resolved to <em>exactly one</em> row.</p>
  *

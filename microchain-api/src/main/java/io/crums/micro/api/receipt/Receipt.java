@@ -20,23 +20,35 @@ import io.crums.util.json.simple.JSONObject;
  * <p>A fresh receipt is a <em>draft</em>: every {@link ChainReceipt} entry's
  * {@link ChainReceipt#state()} is empty. Attaching a commitment path per
  * entry (fetched from each chain's {@code GET /state}, or in one round
- * trip via a future {@code /_verify} endpoint) upgrades it to
+ * trip (via the {@code /_verify} endpoint) upgrades it to
  * <em>anchored</em> — see {@link ChainReceipt}.</p>
- *
- * @param chains one entry per distinct chain contributing rows, in the
- *               order they were resolved
  */
-public record Receipt(List<ChainReceipt> chains) {
+public class Receipt {
 
   public static final Parser PARSER = new Parser();
 
-  public Receipt {
-    chains = List.copyOf(chains);
+  private final List<ChainReceipt> chains;
+
+  public Receipt(List<ChainReceipt> chains) {
+    if (chains.isEmpty())
+      throw new IllegalArgumentException("empty chains");
+    // TODO: verify no duplicate chain-URLs
+    this.chains = List.copyOf(chains);
   }
 
-  /** {@code true} iff every entry is anchored. */
+  /** Returns {@code true} iff every chain is anchored. */
   public boolean isFullyAnchored() {
     return chains.stream().allMatch(ChainReceipt::isAnchored);
+  }
+
+  /**
+   * Returns the list of chain-receipts (source-rows, possibly anchored
+   * (annotated) with chain-proofs).
+   * 
+   * @return not empty
+   */
+  public final List<ChainReceipt> chains() {
+    return chains;
   }
 
 

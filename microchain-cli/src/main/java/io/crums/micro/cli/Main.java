@@ -36,7 +36,7 @@ import io.crums.micro.api.LocalConfig.ChainConfig;
 import io.crums.micro.api.SqlConfig;
 import io.crums.micro.api.receipt.ChainReceipt;
 import io.crums.micro.api.receipt.Receipt;
-import io.crums.micro.api.receipt.ReceiptTemplate;
+import io.crums.micro.api.receipt.ReceiptGeneratorTemplate;
 import io.crums.micro.http.ChainClient;
 import io.crums.sldg.HashConflictException;
 import io.crums.sldg.json.HashEncoding;
@@ -1561,7 +1561,7 @@ public class Main implements Runnable {
           return 1;
         }
 
-        ReceiptTemplate template;
+        ReceiptGeneratorTemplate template;
         try {
           template = cfg.resolveTemplate(templateName);
         } catch (java.util.NoSuchElementException e) {
@@ -1634,12 +1634,17 @@ public class Main implements Runnable {
             anchoredCount++;
             continue;
           }
+          if (cr.chainUrl().isEmpty()) {
+            System.err.println("WARN: " + cr.chainUri() +
+                " is not an http(s) URL; leaving as draft");
+            result.add(cr);
+            continue;
+          }
           try {
-            URI chainUrl = URI.create(cr.chainUrl());
-            ChainClient client = newClient(chainUrl);
+            ChainClient client = newClient(cr.chainUri());
             Optional<io.crums.sldg.Path> path = client.getState(cr.rowNumbers(), true, true);
             if (path.isEmpty()) {
-              System.err.println("WARN: " + cr.chainUrl() +
+              System.err.println("WARN: " + cr.chainUri() +
                   " has no committed rows yet; leaving as draft");
               result.add(cr);
               continue;
@@ -1647,7 +1652,7 @@ public class Main implements Runnable {
             result.add(cr.withState(path.get()));
             anchoredCount++;
           } catch (Exception e) {
-            System.err.println("WARN: could not anchor " + cr.chainUrl() +
+            System.err.println("WARN: could not anchor " + cr.chainUri() +
                 "; leaving as draft: " + e.getMessage());
             result.add(cr);
           }
@@ -1737,11 +1742,12 @@ public class Main implements Runnable {
       boolean[] matched = new boolean[specs.size()];
       List<ChainReceipt> result = new ArrayList<>(receipt.chains().size());
       for (ChainReceipt cr : receipt.chains()) {
-        String lastSegment = lastPathSegment(cr.chainUrl());
+        String chainUriStr = cr.chainUri().toString();
+        String lastSegment = lastPathSegment(chainUriStr);
         List<SourceRow> rows = new ArrayList<>(cr.rows());
         for (int i = 0; i < specs.size(); i++) {
           RedactSpec spec = specs.get(i);
-          if (!spec.chain().equals(lastSegment) && !spec.chain().equals(cr.chainUrl()))
+          if (!spec.chain().equals(lastSegment) && !spec.chain().equals(chainUriStr))
             continue;
           matched[i] = true;
           for (int r = 0; r < rows.size(); r++) {
@@ -1755,7 +1761,7 @@ public class Main implements Runnable {
             rows.set(r, row);
           }
         }
-        result.add(new ChainReceipt(cr.chainUrl(), rows, cr.state()));
+        result.add(new ChainReceipt(cr.chainUri(), rows, cr.state()));
       }
 
       for (int i = 0; i < specs.size(); i++) {

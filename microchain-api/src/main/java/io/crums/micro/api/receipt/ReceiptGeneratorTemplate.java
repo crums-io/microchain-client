@@ -37,11 +37,11 @@ import io.crums.util.json.simple.JSONObject;
  *
  * @param chains the template's row selectors, in resolution order
  */
-public record ReceiptTemplate(List<RowSelector> chains) {
+public record ReceiptGeneratorTemplate(List<RowSelector> chains) {
 
   public static final Parser PARSER = new Parser();
 
-  public ReceiptTemplate {
+  public ReceiptGeneratorTemplate {
     chains = List.copyOf(chains);
     if (chains.isEmpty())
       throw new IllegalArgumentException("a receipt template must declare at least one chain");
@@ -50,19 +50,19 @@ public record ReceiptTemplate(List<RowSelector> chains) {
 
   // ── JSON parser ───────────────────────────────────────────────────────────
 
-  public static class Parser implements JsonEntityParser<ReceiptTemplate> {
+  public static class Parser implements JsonEntityParser<ReceiptGeneratorTemplate> {
 
     @Override
-    public JSONObject injectEntity(ReceiptTemplate tmpl, JSONObject jObj) {
+    public JSONObject injectEntity(ReceiptGeneratorTemplate tmpl, JSONObject jObj) {
       jObj.put(CHAINS_KEY, RowSelector.PARSER.toJsonArray(tmpl.chains()));
       return jObj;
     }
 
     @Override
-    public ReceiptTemplate toEntity(JSONObject jObj) throws JsonParsingException {
+    public ReceiptGeneratorTemplate toEntity(JSONObject jObj) throws JsonParsingException {
       List<RowSelector> chains =
           RowSelector.PARSER.toEntityList(JsonUtils.getJsonArray(jObj, CHAINS_KEY, true));
-      return new ReceiptTemplate(chains);
+      return new ReceiptGeneratorTemplate(chains);
     }
   }
 }

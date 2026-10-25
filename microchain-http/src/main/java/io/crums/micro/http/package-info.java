@@ -1,5 +1,5 @@
 /**
- * HTTP client library for microchain-webservices.
+ * HTTP client library for the microchain web service.
  *
  * <p>{@link io.crums.micro.http.ChainClient} is the central class: it
  * centralises all {@code /{user}/{chain}/} REST calls so that the CLI and

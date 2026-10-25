@@ -14,7 +14,7 @@ import java.util.Optional;
 import io.crums.micro.api.ChainInfo;
 import io.crums.micro.api.ColumnInfo;
 import io.crums.micro.api.CommitRequest;
-import io.crums.micro.api.CommitResponse;
+import io.crums.micro.api.RowCount;
 import io.crums.micro.api.SqlConfig;
 import io.crums.sldg.HashConflictException;
 import io.crums.sldg.Path;
@@ -252,7 +252,7 @@ public class ChainClient {
    * @throws IOException           on HTTP failure
    * @throws InterruptedException  if the HTTP call is interrupted
    */
-  public CommitResponse commit(String token, CommitRequest request)
+  public RowCount commit(String token, CommitRequest request)
       throws IOException, InterruptedException {
     String url  = endpointUrl("commit");
     String body = CommitRequest.PARSER.toJsonObject(request).toJSONString();
@@ -260,7 +260,7 @@ public class ChainClient {
     if (resp.statusCode() == 409)
       throw new HashConflictException(resp.statusCode() + ": " + resp.body());
     checkOk(resp, url);
-    return CommitResponse.PARSER.toEntity(resp.body());
+    return RowCount.PARSER.toEntity(resp.body());
   }
 
 

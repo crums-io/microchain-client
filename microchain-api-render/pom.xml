@@ -1,0 +1,42 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.crums</groupId>
+    <artifactId>microchain-client</artifactId>
+    <version>${revision}</version>
+  </parent>
+
+  <artifactId>microchain-api-render</artifactId>
+  <name>${project.groupId}:${project.artifactId}</name>
+  <description>
+    Renders a Receipt through a Qute template, as HTML or PDF: the shared,
+    portable (no CDI) presentation layer on top of microchain-api's receipt
+    types -- usable server-side and, eventually, by mchain/bindle (client)
+    alike. Split out of microchain-api so that consumers who don't render
+    receipts (e.g. commit.java) don't inherit the qute-core/openhtmltopdf
+    dependencies.
+  </description>
+
+  <dependencies>
+
+    <dependency>
+      <groupId>io.crums</groupId>
+      <artifactId>microchain-api</artifactId>
+      <version>${revision}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.quarkus.qute</groupId>
+      <artifactId>qute-core</artifactId>
+      <version>${qute.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.github.openhtmltopdf</groupId>
+      <artifactId>openhtmltopdf-pdfbox</artifactId>
+      <version>${openhtmltopdf.version}</version>
+    </dependency>
+
+  </dependencies>
+
+</project>

@@ -5,12 +5,15 @@ package io.crums.micro.api.receipt;
 
 import static io.crums.micro.api.ApiConstants.*;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 import io.crums.sldg.HashConflictException;
+import io.crums.sldg.Path;
 import io.crums.sldg.PathPack;
+import io.crums.sldg.Row;
 import io.crums.sldg.json.HashEncoding;
 import io.crums.sldg.json.PathPackParser;
 import io.crums.sldg.src.SourceRow;
@@ -58,6 +61,9 @@ public class SourceReceipt {
    *         row's own {@link SourceRow#hash()}
    */
   public SourceReceipt(List<SourceRow> rows, Optional<PathPack> state) {
+    if (rows.isEmpty())
+      throw new IllegalArgumentException("rows must not be empty");
+    
     this.rows = List.copyOf(rows);
     this.state = Objects.requireNonNull(state, "state");
 
@@ -68,39 +74,34 @@ public class SourceReceipt {
         rowNos);
 
     if (state.isPresent())
-      verifyAgainstState(rowNos);
+      verifyAgainstState();
   }
 
-  private void verifyAgainstState(List<Long> rowNos) {
-    // getPath(..) requires >= 2 targets; state is a narrowly-packed PathPack
-    // (covering only these rows' numbers) so its own lo()/hi() already equal
-    // this set's min/max — getFullPath(..)'s lo/hi padding is a no-op here
-    // and does not sidestep that restriction. Special-case the single-row rest.
-    if (rowNos.size() == 1) {
-      var row = state.get().getRow(rowNos.get(0));
-      if (!row.inputHash().equals(rows.get(0).hash()))
-        throw new HashConflictException(
-          "input hash conflict at row[%d]".formatted(row.no()));
-    } else {
-      var crows = state.get().getPath(rowNos).rows();
-      var srSeq = rows.iterator();
-      SourceRow nextRow = srSeq.next();
+  private void verifyAgainstState() {
 
-      for (var crow : crows) {
-        if (crow.no() < nextRow.no())
-          continue;
+    Path commitPath = state.get().path();
+    Iterator<Row> commits = commitPath.rows().iterator();
+    Iterator<SourceRow> sourceRows = rows.iterator();
 
-        assert crow.no() == nextRow.no();
+    Row nextCommit = commits.next();
+    while (sourceRows.hasNext()) {
+      SourceRow srcRow = sourceRows.next();
 
-        if (!crow.inputHash().equals(nextRow.hash()))
-          throw new HashConflictException(
-            "input hash conflict at row[%d]".formatted(crow.no()));
-
-        if (!srSeq.hasNext())
-          break;
-        nextRow = srSeq.next();
+      while (nextCommit.no() < srcRow.no() && commits.hasNext()) {
+        nextCommit = commits.next();
       }
+      if (nextCommit.no() != srcRow.no())
+        throw new IllegalArgumentException(
+            stateErrorMessage(srcRow, commitPath));
+      
+      if (!nextCommit.inputHash().equals(srcRow.hash()))
+        throw new HashConflictException(
+            "source-row / committed input-hash conflict at row [" + srcRow.no() + "]");
     }
+  }
+
+  private String stateErrorMessage(SourceRow srcRow, Path commitPath) {
+    return "state must include row [%d]: %s".formatted(srcRow.no(), commitPath.nos());
   }
 
   /** The revealed rows, strictly ascending by {@link SourceRow#no()} with no duplicates. */
@@ -121,6 +122,11 @@ public class SourceReceipt {
   /** The row numbers in {@link #rows()}, in order. */
   public List<Long> rowNumbers() {
     return Lists.map(rows, SourceRow::no);
+  }
+
+  /** Returns a copy with {@code path} attached as this instance's {@link #state()}. */
+  public SourceReceipt withState(Path path) {
+    return new SourceReceipt(rows, Optional.of(PathPack.forPath(path)));
   }
 
 

@@ -1,6 +1,6 @@
 /**
  * REST API contract: entity types and JSON parsers for microchain endpoints.
- * Shared between microchain-cli (client) and microchain-webservices (server).
+ * Shared between microchain-cli (client) and the server hosting the microchain.
  *
  * <h2>Endpoint summary</h2>
  * <pre>
@@ -9,7 +9,7 @@
  *   GET  /{user}/{chain}/sql-config → {@link io.crums.micro.api.SqlConfig}
  *   GET  /{user}/{chain}/state      → {@link io.crums.sldg.Path} (PathPack JSON)
  *   POST /{user}/{chain}/commit     → {@link io.crums.micro.api.CommitRequest} /
- *                                     {@link io.crums.micro.api.CommitResponse}
+ *                                     {@link io.crums.micro.api.RowCount}
  * </pre>
  *
  * <h2>Library type mapping</h2>

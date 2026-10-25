@@ -820,6 +820,8 @@ below, replace `https://micro.crums.io/bikeshop/orders` with your chain URL and
 | POST | `/{user}/{chain}/commit` | Bearer | Append row hashes; receive updated row count |
 | POST | `/{user}/{chain}/verify` | — | Verify submitted source rows against the chain; return an anchored receipt entry |
 | POST | `/_verify` | — | Verify every chain entry in a (possibly multi-chain) draft receipt in one round trip |
+| GET | `/{user}/_receipt_templates.src` | — | Direct source-row read for a server-held `SourceLedger` (today: receipt templates) |
+| GET | `/{user}/_receipt_templates.src/count` | — | Row count of that `SourceLedger` |
 
 ---
 
@@ -1162,7 +1164,7 @@ this server's own chains, in one round trip. Any `state` already attached
 to a submitted entry is ignored; a fresh one is always computed.
 
 Only chains hosted on *this* server can be verified here, resolved from
-each entry's own `chain_url`. A chain hosted elsewhere still has its own
+each entry's own `chain_uri`. A chain hosted elsewhere still has its own
 `<chain-url>/verify` to fall back on.
 
 ```sh
@@ -1173,7 +1175,7 @@ curl -X POST \
 ```
 
 As with `/verify`, any single chain entry's hash conflict or unresolvable
-`chain_url` fails the whole request. The same `compress` query parameter
+`chain_uri` fails the whole request. The same `compress` query parameter
 applies here too, uniformly to every chain entry's fresh commitment path.
 
 **Error responses:**
@@ -1181,9 +1183,100 @@ applies here too, uniformly to every chain entry's fresh commitment path.
 | HTTP | Condition |
 |---|---|
 | 400 | `compress` is not `0` or `1` |
-| 404 | A chain entry's `chain_url` doesn't resolve to a chain this server hosts |
+| 404 | A chain entry's `chain_uri` doesn't resolve to a chain this server hosts |
 | 409 | A chain entry's row hash conflicts with that chain's committed input hash |
-| 422 | Malformed JSON, no chain entries, or a malformed `chain_url` |
+| 422 | Malformed JSON, no chain entries, or a malformed `chain_uri` |
+
+---
+
+### The `.src` convention — direct `SourceLedger` access (public)
+
+Any `SourceLedger` this server holds server-side can expose its rows
+directly through a `.src` sibling resource, alongside whatever other REST
+surface that resource already has. The suffix is a dot rather than a path
+segment specifically so it can never collide with a literally-named
+sub-resource (e.g. a receipt template named `src`) — every name/chain
+pattern in this codebase already excludes `.` from its allowed characters,
+so this is safe with no extra reservation needed.
+
+Two defaults deliberately differ from `/verify`'s `ChainReceipt`:
+
+- **Unchained.** The response carries no `chain_uri` — this endpoint
+  doesn't know or care about chain identity (some `SourceLedger`s may have
+  no associated chain at all). The caller already knows the URL it just
+  called.
+- **Unanchored.** By default you get rows only, no commitment proof;
+  anchoring is an explicit opt-in (`anchor=1`), not the default shape.
+
+The response is a plain `SourceReceipt` (rows, and optionally a `state`),
+or — for `/count` — a `RowCount`. Both are shared types defined in
+`microchain-api` (`io.crums.micro.api.receipt.SourceReceipt`,
+`io.crums.micro.api.RowCount`); the latter is also what `/commit` returns.
+
+`_receipt_templates` is the one `SourceLedger` exposed this way today: its
+rows are every template version this user has ever published, across all
+names, ordered by publish order — row number *is* `chain_row_number` (see
+[Receipt templates](#receipt-templates) above for the client-side
+generation workflow; the templates resource's own `GET`/`POST
+/{user}/_receipt_templates[/{name}]` endpoints aren't documented here yet).
+
+#### `GET /_receipt_templates.src` — direct source-row read
+
+```sh
+# Rows 1-3, unanchored (a draft)
+curl "https://micro.crums.io/bikeshop/_receipt_templates.src?rows=1,2,3"
+
+# Same rows, anchored to the chain's current head
+curl "https://micro.crums.io/bikeshop/_receipt_templates.src?rows=1,2,3&anchor=1"
+```
+
+##### Query parameters
+
+| Parameter  | Default      | Description |
+|------------|--------------|-------------|
+| `rows`     | *(required)* | Comma-separated row numbers (1-based). No default — every row number must be ≤ the ledger's current size, or the request 404s. |
+| `anchor`   | `0`          | `1` attaches a commitment path (`state`) linking the requested rows to the chain's current head — same target-selection convention as `/verify` (requested rows plus the latest committed row). |
+| `compress` | `1`          | Same tradeoff as `/state`'s `compress` — see [Why `compress=0` exists](#why-compress0-exists). Only meaningful when `anchor=1`. |
+
+##### Response
+
+```json
+{
+  "rows": [
+    {
+      "row": 1,
+      "cells": ["order-receipt", {"type": "DATE", "value": 1792316551207}, "{{order.total}} paid by {{customer.name}}"],
+      "hash": "<hash>"
+    }
+  ]
+}
+```
+
+With `anchor=1`, a `state` field (a PathPack — same shape as `/state`'s
+response) is added.
+
+##### Error responses
+
+| HTTP | Condition |
+|---|---|
+| 404 | User not found, or a requested row number exceeds the ledger's current size |
+| 422 | `rows` missing, empty, or containing a non-positive-integer token; `anchor`/`compress` not `0`/`1` |
+
+---
+
+#### `GET /_receipt_templates.src/count` — row count
+
+```sh
+curl "https://micro.crums.io/bikeshop/_receipt_templates.src/count"
+```
+
+```json
+{ "row_count": 17 }
+```
+
+| HTTP | Condition |
+|---|---|
+| 404 | User not found |
 
 ## Dependencies
 

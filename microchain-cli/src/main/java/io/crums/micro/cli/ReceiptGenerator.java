@@ -22,14 +22,14 @@ import io.crums.micro.api.LocalConfig.ChainConfig;
 import io.crums.micro.api.SqlConfig;
 import io.crums.micro.api.receipt.ChainReceipt;
 import io.crums.micro.api.receipt.Receipt;
-import io.crums.micro.api.receipt.ReceiptTemplate;
+import io.crums.micro.api.receipt.ReceiptGeneratorTemplate;
 import io.crums.micro.api.receipt.RowSelector;
 import io.crums.micro.cli.Main.ResolvedQueryConfig;
 import io.crums.micro.http.ChainClient;
 import io.crums.sldg.src.SourceRow;
 
 /**
- * Resolves a {@link ReceiptTemplate} into a draft {@link Receipt} by walking
+ * Resolves a {@link ReceiptGeneratorTemplate} into a draft {@link Receipt} by walking
  * its {@link RowSelector}s, in order, against the local SQL database(s)
  * named in a {@link LocalConfig}. See {@link RowSelector}'s javadoc for the
  * full binding rules this implements (the first chain is the "driver",
@@ -82,7 +82,7 @@ public class ReceiptGenerator {
    *         resolved
    * @throws IllegalArgumentException on a malformed {@code args} expression
    */
-  public Receipt generate(ReceiptTemplate template, List<String> inputs)
+  public Receipt generate(ReceiptGeneratorTemplate template, List<String> inputs)
       throws SQLException, IOException, InterruptedException {
 
     Map<String, Resolved> resolvedByAlias = new LinkedHashMap<>();

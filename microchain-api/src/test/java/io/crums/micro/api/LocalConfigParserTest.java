@@ -21,7 +21,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 import io.crums.micro.api.LocalConfig.ChainConfig;
-import io.crums.micro.api.receipt.ReceiptTemplate;
+import io.crums.micro.api.receipt.ReceiptGeneratorTemplate;
 import io.crums.micro.api.receipt.RowSelector;
 import io.crums.testing.IoTestCase;
 import io.crums.util.json.JsonParsingException;
@@ -125,8 +125,8 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
   @Test
-  public void testRoundtrip_withReceiptTemplate() {
-    ReceiptTemplate template = new ReceiptTemplate(List.of(
+  public void testRoundtrip_withReceiptGeneratorTemplate() {
+    ReceiptGeneratorTemplate template = new ReceiptGeneratorTemplate(List.of(
         new RowSelector("orders", Optional.empty(), List.of()),
         new RowSelector("order_items",
             Optional.of("order_id = ?"), List.of("ROW_NO(:orders)")),
@@ -153,13 +153,13 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
   @Test
-  public void testRoundtrip_multipleReceiptTemplates_preservesOrder() {
-    ReceiptTemplate t1 = new ReceiptTemplate(List.of(
+  public void testRoundtrip_multipleReceiptGeneratorTemplates_preservesOrder() {
+    ReceiptGeneratorTemplate t1 = new ReceiptGeneratorTemplate(List.of(
         new RowSelector("orders", Optional.empty(), List.of())));
-    ReceiptTemplate t2 = new ReceiptTemplate(List.of(
+    ReceiptGeneratorTemplate t2 = new ReceiptGeneratorTemplate(List.of(
         new RowSelector("customers", Optional.empty(), List.of())));
 
-    Map<String, ReceiptTemplate> templates = new LinkedHashMap<>();
+    Map<String, ReceiptGeneratorTemplate> templates = new LinkedHashMap<>();
     templates.put("zebra-receipt", t1);
     templates.put("alpha-receipt", t2);
 
@@ -187,7 +187,7 @@ public class LocalConfigParserTest extends IoTestCase {
         orderedChains(
             "orders", ChainConfig.EMPTY.withAccessToken("mcw_orders"),
             "customers", ChainConfig.EMPTY),
-        Map.of("order-receipt", new ReceiptTemplate(List.of(
+        Map.of("order-receipt", new ReceiptGeneratorTemplate(List.of(
             new RowSelector("orders", Optional.empty(), List.of())))));
     assertRoundtrip(cfg);
     JsonPrinter.println(PARSER.toJsonObject(cfg));
@@ -206,7 +206,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
   @Test
-  public void testMalformedReceiptTemplatesEntryThrows() {
+  public void testMalformedReceiptGeneratorTemplatesEntryThrows() {
     JSONObject jObj = new JSONObject();
     JSONObject templatesObj = new JSONObject();
     templatesObj.put("order-receipt", "not an object");
@@ -308,7 +308,7 @@ public class LocalConfigParserTest extends IoTestCase {
 
   @Test
   public void testResolveTemplate_found() {
-    ReceiptTemplate template = new ReceiptTemplate(List.of(
+    ReceiptGeneratorTemplate template = new ReceiptGeneratorTemplate(List.of(
         new RowSelector("orders", Optional.empty(), List.of())));
     LocalConfig cfg = new LocalConfig(
         Optional.empty(), Optional.empty(), DbConfig.EMPTY, Optional.empty(), Optional.empty(),
@@ -355,8 +355,8 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
   @Test
-  public void testResolvePath_preservesReceiptTemplates() {
-    ReceiptTemplate template = new ReceiptTemplate(List.of(
+  public void testResolvePath_preservesReceiptGeneratorTemplates() {
+    ReceiptGeneratorTemplate template = new ReceiptGeneratorTemplate(List.of(
         new RowSelector("orders", Optional.empty(), List.of())));
     LocalConfig cfg = new LocalConfig(
         Optional.empty(), Optional.empty(), DbConfig.EMPTY, Optional.empty(), Optional.empty(),
@@ -399,7 +399,7 @@ public class LocalConfigParserTest extends IoTestCase {
     assertTrue(jar.isAbsolute(), "jdbc_driver_jar should be absolute after loading from file");
     assertEquals(dir.toPath().resolve("drivers/sqlite.jar").toAbsolutePath(), jar);
 
-    ReceiptTemplate template = cfg.resolveTemplate("order-receipt");
+    ReceiptGeneratorTemplate template = cfg.resolveTemplate("order-receipt");
     assertEquals(1, template.chains().size());
     assertEquals("orders", template.chains().get(0).chain());
   }
@@ -412,7 +412,7 @@ public class LocalConfigParserTest extends IoTestCase {
     LocalConfig cfg = new LocalConfig(
         Optional.empty(), Optional.empty(), DbConfig.EMPTY, Optional.empty(), Optional.empty(),
         orderedChains("orders", ChainConfig.EMPTY, "customers", ChainConfig.EMPTY),
-        Map.of("order-receipt", new ReceiptTemplate(List.of(
+        Map.of("order-receipt", new ReceiptGeneratorTemplate(List.of(
             new RowSelector("orders", Optional.empty(), List.of())))));
 
     assertEquals(Set.of("orders", "customers"), cfg.chainAliases());

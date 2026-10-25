@@ -58,6 +58,10 @@ public class ApiConstants {
   public static final String ROWS_KEY  = "rows";
   public static final String STATE_KEY = "state";
 
+  // ChainReceipt JSON -- distinct from CHAIN_URL_KEY (local config file):
+  // a ChainReceipt's identifier need not be an http(s) URL.
+  public static final String CHAIN_URI_KEY = "chain_uri";
+
   // /{user}/_receipt_templates
   public static final String TEMPLATE_NAME_KEY         = "name";
   public static final String TEMPLATE_CONTENT_KEY      = "content";
