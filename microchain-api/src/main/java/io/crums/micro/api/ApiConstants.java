@@ -69,6 +69,9 @@ public class ApiConstants {
   public static final String TEMPLATE_VERSION_KEY      = "version";
   public static final String TEMPLATE_CHAIN_ROW_KEY    = "chain_row_number";
   public static final String TEMPLATE_PUBLISHED_AT_KEY = "published_at";
+  // publish request only, never returned: a Receipt the server must
+  // successfully render against the submitted content before accepting it
+  public static final String TEMPLATE_TEST_RECEIPT_KEY = "test_receipt";
 
   private ApiConstants() { }
 }

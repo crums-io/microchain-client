@@ -43,8 +43,14 @@ public final class CappedRenderer {
           throw new RenderBudgetExceededException(maxChars);
       }).toCompletableFuture().join();
     } catch (CompletionException e) {
-      if (e.getCause() instanceof RenderBudgetExceededException budgetExceeded)
-        throw budgetExceeded;
+      // Qute wraps every render-time failure (budget, interruption, a
+      // TemplateException from a strict-rendering miss, a raw data-access
+      // exception) the same way: as this CompletionException's cause.
+      // Unwrap generically rather than special-casing types one by one --
+      // whichever RuntimeException Qute actually threw is exactly what a
+      // caller's own catch blocks are already written to distinguish.
+      if (e.getCause() instanceof RuntimeException re)
+        throw re;
       throw e;
     }
     return out.toString();

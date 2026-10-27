@@ -35,6 +35,17 @@ public class CappedRendererTest {
   }
 
   @Test
+  public void testStrictRenderingMiss_unwrapsTemplateException_notCompletionException() {
+    // strictRendering(true) raises a TemplateException mid-render (inside
+    // TemplateInstance#consume), not at parse time -- confirms it comes
+    // back as that real type, not wrapped in a CompletionException.
+    Engine engine = QutePreprocesser.newEngine();
+    Template t = engine.parse("{name.nonExistentProperty}");
+    assertThrows(io.quarkus.qute.TemplateException.class,
+        () -> CappedRenderer.render(t.data("name", "world"), 100));
+  }
+
+  @Test
   public void testEvalSectionIsNotRegistered() {
     // {#eval} is deliberately omitted from QutePreprocesser's engine --
     // parsing a template that uses it should fail rather than silently

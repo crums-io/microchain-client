@@ -83,6 +83,14 @@ public final class QutePreprocesser {
    */
   private static EngineBuilder builderWithoutEval() {
     return Engine.builder()
+        // A template referencing a nonexistent property/method is a
+        // publisher's typo, not legitimately-absent data: a missing
+        // *value* (e.g. a NULL-typed cell) still resolves successfully, to
+        // ReceiptRenderSettings#nullSymbol(), via cell.display -- it never
+        // reaches Qute's own "property not found" path at all. So there's
+        // no legitimate case this needs to tolerate; fail fast instead of
+        // silently rendering blank.
+        .strictRendering(true)
         .addSectionHelpers(
             new IfSectionHelper.Factory(),
             new LoopSectionHelper.Factory(ITERATION_METADATA_PREFIX),
