@@ -5,6 +5,7 @@ package io.crums.micro.api.render.engine;
 
 import java.nio.ByteBuffer;
 import java.text.DateFormat;
+import java.util.Base64;
 import java.util.Date;
 import java.util.Objects;
 
@@ -129,9 +130,24 @@ public final class QutePreprocesser {
       case NULL        -> settings.nullSymbol();
       // toValue() returns raw epoch millis for DATE, not an Instant/Date.
       case DATE        -> formatDate((Long) raw, settings);
-      case BYTES, HASH -> settings.hashEncoding().encode((ByteBuffer) raw);
+      // HASH is always exactly 32 bytes -- the one case HashEncoding (hex or
+      // base64_32) is actually meant for.
+      case HASH        -> settings.hashEncoding().encode((ByteBuffer) raw);
+      // BYTES is an arbitrary-length blob (e.g. an embedded image) -- NOT a
+      // hash, so HashEncoding doesn't apply: Base64_32.encode throws
+      // IllegalArgumentException on anything but exactly 32 bytes. Standard
+      // Base64 has no such restriction, and doubles as exactly what a
+      // template needs to build a `data:...;base64,` URI from the cell.
+      case BYTES       -> Base64.getEncoder().encodeToString(toByteArray((ByteBuffer) raw));
       default          -> raw; // STRING, LONG, BIG_INT, BIG_DEC, BOOL
     };
+  }
+
+  private static byte[] toByteArray(ByteBuffer buf) {
+    ByteBuffer dup = buf.duplicate();
+    byte[] bytes = new byte[dup.remaining()];
+    dup.get(bytes);
+    return bytes;
   }
 
   private static String formatDate(long epochMillis, ReceiptRenderSettings settings) {
