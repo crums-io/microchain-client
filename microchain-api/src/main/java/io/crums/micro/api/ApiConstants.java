@@ -73,5 +73,12 @@ public class ApiConstants {
   // successfully render against the submitted content before accepting it
   public static final String TEMPLATE_TEST_RECEIPT_KEY = "test_receipt";
 
+  // /_render_receipt request only: ad-hoc, unregistered template content
+  // paired with the Receipt to render it against. Distinct from
+  // TEMPLATE_TEST_RECEIPT_KEY above (that one's specifically about gating a
+  // *publish*); also distinct from /_verify and the per-template /render,
+  // which take a bare Receipt as the whole request body with no wrapper key.
+  public static final String RECEIPT_KEY = "receipt";
+
   private ApiConstants() { }
 }

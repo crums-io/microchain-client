@@ -27,9 +27,9 @@ public final class ReceiptViewModel {
    * Generous default cap on cells touched over this instance's lifetime --
    * the backstop for a data-driven loop with an empty or non-emitting body,
    * which never trips {@code engine.CappedRenderer}'s char budget no matter
-   * how long it spins. See {@link #checkBudget()}.
+   * how long it spins.
    */
-  public static final long DEFAULT_MAX_ACCESSES = 2_000_000L;
+  public static final long DEFAULT_MAX_ACCESSES = 2_000_000L; // see checkBudget()
 
   private final Receipt receipt;
   private final ReceiptRenderSettings settings;
@@ -62,7 +62,7 @@ public final class ReceiptViewModel {
   
 
   /**
-   * {@link #checkInterrupted()}, plus the per-instance access-count budget:
+   * Checks the current thread's interrupt status, plus the per-instance access-count budget:
    * every call counts as one cell touched, and the {@code maxAccesses}-th
    * one throws.
    *
