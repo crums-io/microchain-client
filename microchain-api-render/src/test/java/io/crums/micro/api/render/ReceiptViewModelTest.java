@@ -20,10 +20,11 @@ import io.quarkus.qute.Engine;
 import io.quarkus.qute.Template;
 
 /**
- * Exercises {@link QutePreprocesser#newEngine()} against a real {@link
- * Receipt}, confirming templates can navigate the actual domain object
- * graph via reflection (no intermediate Map/List tree), and that {@code
- * cell.display} correctly normalizes redacted, DATE, and plain cells.
+ * Exercises {@link QutePreprocesser#newEngine(ReceiptViewModel)} against a
+ * real {@link Receipt}, confirming templates can navigate the actual
+ * domain object graph via reflection (no intermediate Map/List tree), and
+ * that {@code cell.display} correctly normalizes redacted, DATE, and plain
+ * cells.
  */
 public class ReceiptViewModelTest {
 
@@ -32,8 +33,8 @@ public class ReceiptViewModelTest {
   @Test
   public void testDirectReflectionAccess_noResolverConfigured_fails() {
     // Sanity check on the finding that motivated this whole design:
-    // a bare Engine, without QutePreprocesser.configure, can't navigate
-    // plain domain objects at all.
+    // a bare Engine, without QutePreprocesser's registrations, can't
+    // navigate plain domain objects at all.
     Engine bare = Engine.builder().addDefaults().build();
     SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
@@ -46,14 +47,13 @@ public class ReceiptViewModelTest {
 
   @Test
   public void testConfiguredEngine_navigatesRealReceiptDirectly() {
-    Engine engine = QutePreprocesser.newEngine();
-
     SourceRowBuilder builder = new SourceRowBuilder();
     Date orderDate = new Date(1_700_000_000_000L);
     SourceRow row = builder.buildRow(1L, "Acme Corp", orderDate, 42L);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
     Receipt receipt = new Receipt(List.of(cr));
     ReceiptViewModel vm = new ReceiptViewModel(receipt);
+    Engine engine = QutePreprocesser.newEngine(vm);
 
     Template t = engine.parse(
         "{receipt.chains.get(0).rows.get(0).cells.get(0).display} / " +
@@ -76,12 +76,11 @@ public class ReceiptViewModelTest {
 
   @Test
   public void testConfiguredEngine_renderAsImplicitRoot_noPrefixNeeded() {
-    Engine engine = QutePreprocesser.newEngine();
-
     SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
     ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
 
     Template t = engine.parse("{chains.get(0).rows.get(0).cells.get(0).display}");
     assertEquals("Acme Corp", t.render(vm.receipt()));
@@ -89,12 +88,11 @@ public class ReceiptViewModelTest {
 
   @Test
   public void testConfiguredEngine_redactedCell_showsSentinelNotException() {
-    Engine engine = QutePreprocesser.newEngine();
-
     SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow row = builder.buildRow(1L, "secret-name", 42L).redact(0);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
     ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
 
     Template t = engine.parse(
         "{receipt.chains.get(0).rows.get(0).cells.get(0).display} / " +
@@ -156,7 +154,7 @@ public class ReceiptViewModelTest {
     List<SourceRow> rows = vm.receipt().chains().get(0).rows();
     assertEquals(2, rows.size());
 
-    Engine engine = QutePreprocesser.newEngine();
+    Engine engine = QutePreprocesser.newEngine(vm);
     Template t = engine.parse(
         "{chains.get(0).rows.get(0).cells.get(0).display} / " +
         "{chains.get(0).rows.get(1).cells.get(0).display}");
@@ -187,13 +185,72 @@ public class ReceiptViewModelTest {
 
   @Test
   public void testAccessBudget_underLimit_rendersNormally() {
-    Engine engine = QutePreprocesser.newEngine();
     SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
     ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)), new ReceiptRenderSettings(), 100);
+    Engine engine = QutePreprocesser.newEngine(vm);
 
     Template t = engine.parse("{chains.get(0).rows.get(0).cells.get(0).display}");
     assertEquals("Acme Corp", t.render(vm.receipt()));
+  }
+
+  @Test
+  public void testViewModelItselfAsRoot_chainsForwardsLikeReceipt() {
+    // The actual production call shape (ReceiptRenderService#parseAndRender):
+    // the view model itself -- not vm.receipt() -- is what gets handed to
+    // Qute as root data, so {chains...} must resolve directly off it too.
+    SourceRowBuilder builder = new SourceRowBuilder();
+    SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
+    ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
+
+    Template t = engine.parse("{chains.get(0).rows.get(0).cells.get(0).display}");
+    assertEquals("Acme Corp", t.render(vm));
+  }
+
+  @Test
+  public void testViewModelItselfAsRoot_settingsReachableFromTemplate() {
+    // Settings were only ever reachable Java-side (at Engine-configure
+    // time) until the view model itself became the Qute root -- this
+    // confirms a template can now at least read them.
+    SourceRowBuilder builder = new SourceRowBuilder();
+    SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
+    ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
+
+    Template t = engine.parse("{settings.hashEncoding}");
+    assertEquals(vm.settings().hashEncoding().toString(), t.render(vm));
+  }
+
+  @Test
+  public void testViewModelItselfAsRoot_settingsWritableFromTemplate() {
+    // Confirms the write path, not just the read path above, under the
+    // exact production call shape (t.render(vm)): a template can call a
+    // settings setter as a bare statement (its "" return renders as
+    // nothing, no {#if}/{#let} wrapper needed) and have a later
+    // cell.display call in the SAME render observe the mutation. This only
+    // works because the engine is built from the view model itself, via
+    // QutePreprocesser.newEngine(ReceiptViewModel) -- cell.display's
+    // resolver is thereby guaranteed to close over the exact same settings
+    // instance vm.settings() returns (the exact bug
+    // ReceiptRenderService#parseAndRender used to have: it built the
+    // engine with its own default settings and the view model with a
+    // separate, unrelated one -- newEngine(ReceiptViewModel) makes that
+    // mismatch unrepresentable).
+    SourceRowBuilder builder = new SourceRowBuilder();
+    SourceRow row = builder.buildRow(1L, (Object) null); // single NULL cell
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
+    ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
+
+    Template t = engine.parse(
+        "{chains.get(0).rows.get(0).cells.get(0).display}/" +
+        "{settings.setNullSymbol('N/A')}" +
+        "{chains.get(0).rows.get(0).cells.get(0).display}");
+
+    assertEquals("/N/A", t.render(vm));
   }
 }

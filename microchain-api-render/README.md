@@ -42,7 +42,7 @@ one.
 
 | Class | Role |
 |---|---|
-| `ReceiptViewModel` | A `Receipt` paired with `ReceiptRenderSettings` and an access-count budget -- the one argument type Qute is actually fed (`viewModel.receipt()`); carries no Qute dependency itself |
+| `ReceiptViewModel` | A `Receipt` paired with `ReceiptRenderSettings` and an access-count budget -- this instance itself, not just `receipt()`, is the root data object Qute is actually fed (`template.data(viewModel)`); carries no Qute dependency itself |
 | `ReceiptRenderSettings` | Mutable, shareable settings for `cell.display`'s safe/normalized rendering: redacted/null sentinels, `DATE` format, `HASH` hash encoding (`BYTES` is always standard Base64, not configurable -- `HashEncoding`/`Base64_32` requires exactly 32 bytes, which only a `HASH` cell is guaranteed to be) |
 | `ReceiptPdfRenderer` | HTML -> PDF, embedding the receipt JSON that produced it as an attached file (`/Names/EmbeddedFiles`), not an HTML-comment hack |
 | `TemplateShapeGuard` | Publish-time check: rejects an oversized literal `{#for}`/`{#each}` range or excessive loop nesting -- shape alone, independent of any `Receipt` it's later rendered against |
@@ -71,11 +71,16 @@ TODO) -- so template syntax looks like `{chains.get(0).rows.get(0).cells.get(0).
 // against this content:
 TemplateShapeGuard.validate(content);
 
-Engine engine = QutePreprocesser.newEngine(); // or newEngine(settings)
-Template template = engine.parse(content, null, contentHash); // stable id = cache key
-
+// The engine is built FROM the view model, not alongside it -- that's the
+// one public QutePreprocesser.newEngine overload, and it guarantees
+// cell.display's resolver closes over the exact same ReceiptRenderSettings
+// instance viewModel.settings() returns, so a template-authored
+// settings.setXxx(...) call is guaranteed to take effect.
 ReceiptViewModel viewModel = new ReceiptViewModel(receipt); // or with settings/maxAccesses
-TemplateInstance instance = template.data(viewModel.receipt());
+Engine engine = QutePreprocesser.newEngine(viewModel);
+Template template = engine.parse(content, null, contentHash); // id is identity only, not a cache key
+
+TemplateInstance instance = template.data(viewModel); // the view model itself is the root
 
 String html;
 try {

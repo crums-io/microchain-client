@@ -16,10 +16,15 @@ import io.crums.util.collections.Lists;
 
 /**
  * A {@link Receipt} to be rendered, paired with the {@link
- * ReceiptRenderSettings} controlling how its cells are displayed. A pure
- * argument type: carries no knowledge of Qute (or any other templating
- * engine) -- that plumbing lives entirely in the unexported {@code
- * io.crums.micro.api.render.engine} package.
+ * ReceiptRenderSettings} controlling how its cells are displayed -- and
+ * the root data object actually handed to Qute (via {@code
+ * Template#data}), not {@link #receipt()} on its own.
+ * <p>
+ * Excepting its {@linkplain ReceiptRenderSettings settings} member,
+ * which is configurable directly from the Qute script (!),
+ * all objects returned by this API (and their transitive subcomponents)
+ * are read-only (immutable).
+ * </p>
  */
 public final class ReceiptViewModel {
 
@@ -50,10 +55,29 @@ public final class ReceiptViewModel {
     this.receipt = decorate(receipt);
   }
 
+
+  /**
+   * Returns the receipt.
+   */
   public Receipt receipt() {
     return receipt;
   }
 
+  /**
+   * Returns the receipt's chains. This is a <em>convenience</em> method
+   * for invoking {@code receipt().chains()}
+   * 
+   * @return {@code receipt().chains()}
+   */
+  public List<ChainReceipt> chains() {
+    return receipt.chains();
+  }
+
+
+  /**
+   * Returns the render settings. The returned "settings" object is configurable
+   * from the Qute script.
+   */
   public ReceiptRenderSettings settings() {
     return settings;
   }

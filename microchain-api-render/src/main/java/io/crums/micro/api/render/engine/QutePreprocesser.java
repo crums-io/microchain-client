@@ -10,6 +10,7 @@ import java.util.Date;
 import java.util.Objects;
 
 import io.crums.micro.api.render.ReceiptRenderSettings;
+import io.crums.micro.api.render.ReceiptViewModel;
 import io.crums.sldg.src.Cell;
 import io.crums.sldg.src.DataType;
 
@@ -41,7 +42,7 @@ import io.quarkus.qute.WithSectionHelper;
  * worth hiding behind {@link io.crums.micro.api.render.ReceiptViewModel}.
  * It's still kept in its own package because it's tooling a caller reaches
  * for only when actually wiring up an {@link Engine} -- building one via
- * {@link #newEngine()}/{@link #configure} -- not something touched on the
+ * {@link #newEngine(ReceiptViewModel)} -- not something touched on the
  * common per-render path.</p>
  */
 public final class QutePreprocesser {
@@ -58,13 +59,32 @@ public final class QutePreprocesser {
   private QutePreprocesser() {
   }
 
-  /** A fresh {@link Engine}, configured with default {@link ReceiptRenderSettings}. */
-  public static Engine newEngine() {
-    return newEngine(new ReceiptRenderSettings());
+
+  /**
+   * Creates and returns a new engine bound to the given model's
+   * {@linkplain ReceiptViewModel#settings() settings}. The one public way
+   * to build an {@link Engine} -- it ties the engine's {@code
+   * cell.display} resolver to the exact same settings instance the view
+   * model itself carries, by construction, rather than leaving the two in
+   * sync up to the caller (the engine and the view model used to be built
+   * independently, each with its own default {@link ReceiptRenderSettings},
+   * which is exactly how {@code ReceiptRenderService} once silently lost
+   * track of which instance was which).
+   */
+  public static Engine newEngine(ReceiptViewModel viewModel) {
+    return configure(builderWithoutEval(), viewModel.settings()).build();
   }
 
-  /** A fresh {@link Engine}, configured per {@link #configure(EngineBuilder, ReceiptRenderSettings)}. */
-  public static Engine newEngine(ReceiptRenderSettings settings) {
+
+  /**
+   * Package-private: an engine bound directly to a bare {@link
+   * ReceiptRenderSettings}, with no {@link ReceiptViewModel} needed. Exists
+   * only for this module's own low-level tests that exercise {@code
+   * cell.display} or generic engine wiring directly, with no {@code
+   * Receipt} object graph involved -- {@link #newEngine(ReceiptViewModel)}
+   * is the one public way to build an {@link Engine}.
+   */
+  static Engine newEngine(ReceiptRenderSettings settings) {
     return configure(builderWithoutEval(), settings).build();
   }
 
@@ -106,7 +126,7 @@ public final class QutePreprocesser {
         .addDefaultValueResolvers();
   }
 
-  public static EngineBuilder configure(EngineBuilder builder, ReceiptRenderSettings settings) {
+  private static EngineBuilder configure(EngineBuilder builder, ReceiptRenderSettings settings) {
     Objects.requireNonNull(settings, "settings");
     ValueResolver cellDisplayResolver =
         ValueResolver.builder()

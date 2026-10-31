@@ -4,6 +4,7 @@
 package io.crums.micro.api.render;
 
 import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.Objects;
 
 import io.crums.sldg.json.HashEncoding;
@@ -17,59 +18,99 @@ import io.crums.sldg.json.HashEncoding;
  * Engine} -- closed over by the {@code cell.display} resolver at
  * engine-configure time -- so changing a setting here takes effect on the
  * next render without rebuilding the engine. Fields are {@code volatile}.</p>
+ *
+ * <p>Every setter returns {@code String} (always {@code ""}), not {@code
+ * void} and not {@code this}. {@code void} is not an option: a Qute
+ * template invokes these setters directly (settings are reachable from a
+ * template as {@code settings.*}), and {@code
+ * io.quarkus.qute.ReflectionValueResolver} excludes void-returning methods
+ * from candidacy entirely -- a {@code void} setter would simply not be
+ * callable from a template at all. {@code this} is not a good choice
+ * either: a setter called as a bare template statement, for its side
+ * effect, would otherwise print its return value's {@code toString()}
+ * straight into the rendered output. The return value carries no meaning
+ * of its own (a setter either succeeds or throws) -- it exists purely so
+ * the method stays callable and so calling it, e.g. {@code
+ * settings.setHashEncodingToHex()}, as an ordinary bare template statement
+ * renders nothing, with no extra syntax (no {@code {#if}}/{@code {#let}}
+ * wrapper) needed to suppress it.</p>
  */
 public final class ReceiptRenderSettings {
 
-  public static final Object DEFAULT_REDACT_SYMBOL = "[redacted]";
-  public static final Object DEFAULT_NULL_SYMBOL = "";
+  public static final String DEFAULT_REDACT_SYMBOL = "[redacted]";
+  public static final String DEFAULT_NULL_SYMBOL = "";
   public static final HashEncoding DEFAULT_HASH_ENCODING = HashEncoding.HEX;
+  public static final int DATE_FORMAT_CAP = 1000;
 
-  // why an object? hopefully it can also be an image. (Discuss)
-  private volatile Object redactSymbol = DEFAULT_REDACT_SYMBOL;
+  private volatile String redactSymbol = DEFAULT_REDACT_SYMBOL;
 
-  private volatile Object nullSymbol = DEFAULT_NULL_SYMBOL;
+  private volatile String nullSymbol = DEFAULT_NULL_SYMBOL;
 
   private volatile HashEncoding hashEncoding = DEFAULT_HASH_ENCODING;
 
   private volatile DateFormat dateFormat;
 
 
-  public Object redactSymbol() {
+  public String redactSymbol() {
     return redactSymbol;
   }
 
-  public ReceiptRenderSettings setRedactSymbol(Object redactSymbol) {
+  public String setRedactSymbol(String redactSymbol) {
     this.redactSymbol = Objects.requireNonNull(redactSymbol);
-    return this;
+    return "";
   }
 
-  public Object nullSymbol() {
+  public String nullSymbol() {
     return nullSymbol;
   }
 
-  public ReceiptRenderSettings setNullSymbol(Object nullSymbol) {
-    this.nullSymbol = nullSymbol;
-    return this;
+  public String setNullSymbol(String nullSymbol) {
+    this.nullSymbol = Objects.requireNonNull(nullSymbol);
+    return "";
   }
 
   public HashEncoding hashEncoding() {
     return hashEncoding;
   }
 
-  public ReceiptRenderSettings setHashEncoding(HashEncoding hashEncoding) {
-    this.hashEncoding = Objects.requireNonNull(hashEncoding);
-    return this;
+
+  public String setHashEncodingToHex() {
+    this.hashEncoding = HashEncoding.HEX;
+    return "";
   }
 
-  /** Never returns {@code null} (defaults to {@link DateFormat#getDateInstance()}). */
+  public String setHashEncodingToB64() {
+    this.hashEncoding = HashEncoding.BASE64_32;
+    return "";
+  }
+
+  /**
+   * Never returns {@code null} (defaults to {@link DateFormat#getDateInstance()}).
+   * Since {@link DateFormat}s are not guaranteed to be thread-safe, each invocation
+   * of this method returns a new (possibly cloned) instance.
+   */
   public DateFormat dateFormat() {
     DateFormat format = dateFormat;
-    return format == null ? DateFormat.getDateInstance() : format;
+    return format == null ? DateFormat.getDateInstance() : (DateFormat) format.clone();
   }
 
-  public ReceiptRenderSettings setDateFormat(DateFormat dateFormat) {
-    this.dateFormat = Objects.requireNonNull(dateFormat);
-    return this;
+  /**
+   * Sets the date format using the "simple-date-format" convention.
+   *
+   * @param format simple-date-format.
+   *
+   * @see SimpleDateFormat
+   * @throws IllegalArgumentException if {@code format} is not a valid string
+   */
+  public String setDateFormat(String format) {
+    Objects.requireNonNull(format);
+    if (format.length() > DATE_FORMAT_CAP)
+      throw new IllegalArgumentException(
+          "date format string length (%d) exceeds cap (%d)"
+          .formatted(format.length(), DATE_FORMAT_CAP));
+
+    this.dateFormat = new SimpleDateFormat(format);
+    return "";
   }
 
 }
