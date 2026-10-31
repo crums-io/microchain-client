@@ -36,11 +36,13 @@ import io.quarkus.qute.WithSectionHelper;
  * {@code DATE}/{@code BYTES}/{@code HASH} cell's raw value (epoch millis /
  * a bare {@link ByteBuffer}) isn't printable as-is.
  *
- * <p>This class -- and the {@code .engine} package it lives in -- is not
- * exported by this module: {@link Engine}/{@link EngineBuilder} are
- * backend plumbing, never part of this module's public API. The only
- * public, Qute-agnostic argument type is {@code
- * io.crums.micro.api.render.ReceiptViewModel}.</p>
+ * <p>This class, and the {@code .engine} package it lives in, is exported:
+ * Qute is part of the rendering DSL itself, not an implementation detail
+ * worth hiding behind {@link io.crums.micro.api.render.ReceiptViewModel}.
+ * It's still kept in its own package because it's tooling a caller reaches
+ * for only when actually wiring up an {@link Engine} -- building one via
+ * {@link #newEngine()}/{@link #configure} -- not something touched on the
+ * common per-render path.</p>
  */
 public final class QutePreprocesser {
 

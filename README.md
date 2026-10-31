@@ -24,18 +24,33 @@ the commitment chain, see below.)
 
 ### Commitment workflow
 
-Rather than send raw row-data to the chain server, clients compute the SHA-256 hash
-of each row locally and submit only those hashes. The website's new-chain form defaults
-to salting every column, so no information leaks unless the chain owner opts out; whether
-a chain is salted is fixed once rows start being committed (see `salted` below).
-The server appends these
-*input* hashes to a SkipLedger, a compact hash-pointer data structure that records
-both the input- and the computed commitment-hash per row (64-byte block per row). Owing to
-the linked structure of the hash computation, the hash of each row already bakes in
-the cumulative content of every row before it. So row *N*'s commitment-hash also functions as the state of the
-entire ledger when it had exactly *N* rows. This in turn allows the ledger owner to generate
-tamper evident, succinct "receipts" linking the content of any row to the current commitment hash of
-the ledger (see next).
+Rather than send raw row-data to the chain server, clients compute the row's
+*input hash* (SHA-256) entirely locally and submit only that hash to
+`/commit` — raw row data never reaches the server, and the `/commit`
+endpoint never touches a salt value at all. When a chain is salted,
+salting happens as part of that same local computation: each cell value
+is combined with a pseudo-random, per-cell salt (derived from a secret
+seed and the cell's coordinates — see `TableSalt` in
+`skipledger-tablesalt`) *before* hashing, so the salt is already baked
+into the submitted input hash. The server's only role regarding salt is
+managing the *seed* itself: when a chain owner opts to let the server
+generate it (see step 5 below), the server stores that seed and serves it
+back via `GET /salts` so any client with Bearer access can reproduce the
+same salted hashes locally — it's still the client, never the server,
+that combines a seed with a cell value. The website's new-chain form
+defaults to salting every column, so no information leaks unless the
+chain owner opts out; whether a chain is salted is fixed at chain
+creation (see `salted` below).
+
+The server appends these *input* hashes to a SkipLedger, a compact
+hash-pointer data structure that records both the input- and the computed
+commitment-hash per row (64-byte block per row). Owing to the linked
+structure of the hash computation, the hash of each row already bakes in
+the cumulative content of every row before it. So row *N*'s
+commitment-hash also functions as the state of the entire ledger when it
+had exactly *N* rows. This in turn allows the ledger owner to generate
+tamper evident, succinct "receipts" linking the content of any row to the
+current commitment hash of the ledger (see next).
 
 ### Tamper-evident receipts
 
@@ -59,10 +74,19 @@ command — see [Receipt templates](#receipt-templates) below.
 
 ### Presentation
 
-(TODO). Receipts may be beautified for presentation using Qute-rendered
-HTML/PDF templates — a separate concern from the `receipt_templates`
-row-selector DSL described below, which assembles a receipt's *data*, not
-its presentation.
+Receipts can be beautified for presentation using Qute-rendered HTML/PDF
+templates — a separate concern from the `receipt_templates` row-selector
+DSL described below, which assembles a receipt's *data*, not its
+presentation. The portable rendering core (`microchain-api-render`, see
+[Modules](#modules)) and the server's named, versioned, immutable
+presentation templates (`/{user}/_receipt_templates`) are done; a holder
+of any receipt can render it through a published template, HTML or PDF, no
+`mchain` install required (`POST /{user}/_receipt_templates/{name}/render`),
+and a template author can dry-run draft template content against a sample
+receipt before publishing it (`POST /_render_receipt`). Still TODO:
+`mchain`/`bindle` rendering the same way entirely client-side, reusing
+`microchain-api-render` against a plain `qute-core` `Engine` rather than
+going through the server at all.
 
 ## Configuration
 
@@ -104,7 +128,8 @@ Before any of the tools below can do anything useful:
    `/{user}/{chain}` (in these docs, user `bikeshop`).
 2. **Create a named access token**, from your account's manage page. This token
    authorizes access to every Bearer-protected endpoint (`/commit`, `/salts`,
-   `/sql-config`, `PUT /columns`) for any chain configured to use it.
+   `/sql-config`, `PUT /columns`, `POST /_receipt_templates/{name}`) for any
+   chain configured to use it.
 
 The examples throughout this document use a hypothetical `bikeshop` account
 with three related chains — `orders`, `order_items`, and `customers` —
@@ -115,6 +140,7 @@ backed by tables in the same on-prem SQL database.
 | Module | Artifact | Purpose |
 |---|---|---|
 | `microchain-api` | `io.crums:microchain-api` | REST contract — DTOs and JSON parsers shared with the server |
+| `microchain-api-render` | `io.crums:microchain-api-render` | Portable (no CDI) core that renders a `Receipt` through a Qute template as HTML or PDF — used server-side today, intended for `mchain`/`bindle` later (see [Presentation](#presentation)) |
 | `microchain-http` | `io.crums:microchain-http` | `java.net.http` client-side REST API implementation |
 | `microchain-cli` | `io.crums:microchain-cli` | Full CLI tool, lightweight commit script |
 
@@ -673,6 +699,12 @@ mchain commit https://micro.crums.io/bikeshop/orders \
 ---
 
 ## Receipt templates
+
+> **Not to be confused with** the server's `_receipt_templates` chain
+> (see [Presentation](#presentation) and [the `.src` convention](#the-src-convention--direct-sourceledger-access-public)
+> below) — that's a named, versioned store of *presentation* (Qute)
+> templates, which renders an already-assembled `Receipt`. This section is
+> about assembling that `Receipt` in the first place, entirely client-side.
 
 A template is an ordered list of **row selectors**, one per chain
 contributing rows, declared under the local config file's

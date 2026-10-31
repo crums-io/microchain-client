@@ -5,11 +5,15 @@
  * <h2>Endpoint summary</h2>
  * <pre>
  *   GET  /{user}/{chain}/info       → {@link io.crums.micro.api.ChainInfo}
+ *   GET  /{user}/{chain}/columns    → {@code List<}{@link io.crums.micro.api.ColumnInfo}{@code >}
+ *   PUT  /{user}/{chain}/columns    → {@code List<}{@link io.crums.micro.api.ColumnInfo}{@code >}
  *   GET  /{user}/{chain}/salts      → {@code List<}{@link io.crums.sldg.salt.EpochedTableSalt.EpochSeed}{@code >} (via {@link io.crums.sldg.src.json.EpochSeedParser})
  *   GET  /{user}/{chain}/sql-config → {@link io.crums.micro.api.SqlConfig}
  *   GET  /{user}/{chain}/state      → {@link io.crums.sldg.Path} (PathPack JSON)
  *   POST /{user}/{chain}/commit     → {@link io.crums.micro.api.CommitRequest} /
  *                                     {@link io.crums.micro.api.RowCount}
+ *   POST /{user}/{chain}/verify     → {@link io.crums.micro.api.receipt.ChainReceipt}
+ *   POST /_verify                   → {@link io.crums.micro.api.receipt.Receipt} (multi-chain)
  * </pre>
  *
  * <h2>Library type mapping</h2>
@@ -27,8 +31,10 @@
  * or use {@link io.crums.sldg.src.json.TableSaltReader#READER} to go directly
  * to a {@link io.crums.sldg.salt.TableSalt} in one step.</p>
  *
- * <p>Future: the {@code /verify} endpoint will return a
- * {@link io.crums.sldg.src.SourceRow} proof, whose parser lives in
- * <em>source-ledger</em> ({@code io.crums.sldg.src}).</p>
+ * <p>The {@code /verify} and {@code /_verify} endpoints take the caller's
+ * already-held source rows (as a draft {@link io.crums.micro.api.receipt.Receipt}
+ * / {@link io.crums.micro.api.receipt.ChainReceipt}) and return the same
+ * shape with a freshly-computed commitment path attached per chain entry —
+ * see the {@code io.crums.micro.api.receipt} subpackage.</p>
  */
 package io.crums.micro.api;
