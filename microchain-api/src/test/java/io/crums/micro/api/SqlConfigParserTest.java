@@ -29,7 +29,7 @@ public class SqlConfigParserTest {
 
   // -- helpers ---------------------------------------------------------------
 
-  private static void assertRoundtrip(SqlConfig cfg) {
+  private void assertRoundtrip(SqlConfig cfg) {
     JSONObject jObj = PARSER.toJsonObject(cfg);
     SqlConfig cfg2  = PARSER.toEntity(jObj);
     assertEquals(cfg.byNoQuery(),       cfg2.byNoQuery());

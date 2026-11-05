@@ -19,7 +19,7 @@ public class CappedRendererTest {
   // -- this is the module's own package-private QutePreprocesser.newEngine
   // (ReceiptRenderSettings) overload, wrapped locally since it's not part
   // of the public API.
-  private static Engine newEngine() {
+  private Engine newEngine() {
     return QutePreprocesser.newEngine(new ReceiptRenderSettings());
   }
 

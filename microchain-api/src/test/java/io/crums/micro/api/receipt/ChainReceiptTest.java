@@ -52,7 +52,7 @@ public class ChainReceiptTest {
 
   private static final String CHAIN_URL = "https://micro.crums.io/bikeshop/orders";
 
-  private static byte[] seed(int fill) {
+  private byte[] seed(int fill) {
     byte[] b = new byte[32];
     Arrays.fill(b, (byte) fill);
     return b;
@@ -62,7 +62,7 @@ public class ChainReceiptTest {
   // -- fixture builders -----------------------------------------------------
 
   /** Builds 10 source rows numbered 100-109 using the given salt scheme. */
-  private static List<SourceRow> buildRealRows(TableSalt salt) {
+  private List<SourceRow> buildRealRows(TableSalt salt) {
     SourceRowBuilder builder = new SourceRowBuilder(salt);
     List<SourceRow> rows = new ArrayList<>(10);
     for (long no = 100; no <= 109; no++)
@@ -74,7 +74,7 @@ public class ChainReceiptTest {
    * Commits 99 filler rows (random input hashes, rows 1-99), then the given
    * real rows' hashes (rows 100-109), to a fresh in-memory skipledger.
    */
-  private static SkipLedger buildLedger(List<SourceRow> realRows) {
+  private SkipLedger buildLedger(List<SourceRow> realRows) {
     SkipLedger ledger = SkipLedgers.inMemoryInstance();
     Random rnd = new Random(42);
     byte[] mock = new byte[32];
@@ -92,14 +92,14 @@ public class ChainReceiptTest {
    * {@code ledger} (not "from row 1"), and packs it -- the same shape
    * {@code mchain receipt anchor} itself produces via {@code GET /state}.
    */
-  private static PathPack anchorPack(SkipLedger ledger, List<SourceRow> targetRows) {
+  private PathPack anchorPack(SkipLedger ledger, List<SourceRow> targetRows) {
     List<Long> rowNos = targetRows.stream().map(SourceRow::no).toList();
     Path path = ledger.getPath(rowNos);
     return PathPack.forPath(path);
   }
 
   /** Convenience: builds a fresh ledger for exactly {@code realRows}, then packs all of them. */
-  private static PathPack anchorPack(List<SourceRow> realRows) {
+  private PathPack anchorPack(List<SourceRow> realRows) {
     return anchorPack(buildLedger(realRows), realRows);
   }
 

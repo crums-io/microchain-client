@@ -40,7 +40,7 @@ public class LocalConfigParserTest extends IoTestCase {
 
   // -- helpers ---------------------------------------------------------------
 
-  private static void assertRoundtrip(LocalConfig cfg) {
+  private void assertRoundtrip(LocalConfig cfg) {
     JSONObject jObj = PARSER.toJsonObject(cfg);
     LocalConfig cfg2 = PARSER.toEntity(jObj);
     assertEquals(cfg.baseChainUrl(), cfg2.baseChainUrl());
@@ -423,7 +423,7 @@ public class LocalConfigParserTest extends IoTestCase {
   // -- local helpers ---------------------------------------------------------
 
   /** Builds an order-preserving {@code Map<String, ChainConfig>} from alternating key/value pairs. */
-  private static Map<String, ChainConfig> orderedChains(Object... kv) {
+  private Map<String, ChainConfig> orderedChains(Object... kv) {
     Map<String, ChainConfig> map = new LinkedHashMap<>();
     for (int i = 0; i < kv.length; i += 2)
       map.put((String) kv[i], (ChainConfig) kv[i + 1]);

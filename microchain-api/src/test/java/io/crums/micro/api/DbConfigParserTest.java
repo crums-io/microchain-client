@@ -26,7 +26,7 @@ public class DbConfigParserTest {
 
   // -- helpers ---------------------------------------------------------------
 
-  private static void assertRoundtrip(DbConfig cfg) {
+  private void assertRoundtrip(DbConfig cfg) {
     JSONObject jObj = PARSER.toJsonObject(cfg);
     DbConfig cfg2   = PARSER.toEntity(jObj);
     assertEquals(cfg.jdbcUrl(),         cfg2.jdbcUrl());

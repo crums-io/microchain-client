@@ -315,7 +315,7 @@ public class ChainClient {
    * Asserts HTTP 200; throws {@link SecurityException} on 401,
    * {@link IOException} on any other non-200.
    */
-  private static void checkOk(HttpResponse<String> resp, String url) throws IOException {
+  private void checkOk(HttpResponse<String> resp, String url) throws IOException {
     int s = resp.statusCode();
     if (s == 200) return;
     if (s == 401)
@@ -332,7 +332,7 @@ public class ChainClient {
   }
 
   /** Builds the {@code rows=...&compress=...} query string for a parameterised {@code /state} call. */
-  private static String stateQuery(List<Long> targetRows, boolean includeLast, boolean compress) {
+  private String stateQuery(List<Long> targetRows, boolean includeLast, boolean compress) {
     if (targetRows.isEmpty() && !includeLast)
       throw new IllegalArgumentException("must specify at least one row or includeLast=true");
     var sb = new StringBuilder("rows=");
@@ -360,7 +360,7 @@ public class ChainClient {
   }
 
   /** Parses a response body as a JSON array; wraps {@link ParseException} in {@link IOException}. */
-  private static JSONArray parseArray(String body, String url) throws IOException {
+  private JSONArray parseArray(String body, String url) throws IOException {
     try {
       return (JSONArray) new JSONParser().parse(body);
     } catch (ParseException px) {

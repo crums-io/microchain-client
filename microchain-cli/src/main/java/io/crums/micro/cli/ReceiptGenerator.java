@@ -201,7 +201,7 @@ public class ReceiptGenerator {
     throw new IllegalArgumentException("unrecognized args expression: '" + expr + "'");
   }
 
-  private static Resolved requireResolved(
+  private Resolved requireResolved(
       String alias, Map<String, Resolved> resolvedByAlias, String expr) {
     Resolved r = resolvedByAlias.get(alias);
     if (r == null)
@@ -211,7 +211,7 @@ public class ReceiptGenerator {
     return r;
   }
 
-  private static int findColumnIndex(List<String> labels, String name) {
+  private int findColumnIndex(List<String> labels, String name) {
     for (int i = 0; i < labels.size(); i++)
       if (name.equalsIgnoreCase(labels.get(i)))
         return i;

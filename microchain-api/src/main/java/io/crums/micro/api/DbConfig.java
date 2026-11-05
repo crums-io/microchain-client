@@ -132,7 +132,7 @@ public record DbConfig(
   }
 
   // Some drivers (e.g. SQLite) don't allow setReadOnly after connect; ignore.
-  private static Connection readOnly(Connection conn) {
+  private Connection readOnly(Connection conn) {
     try { conn.setReadOnly(true); } catch (SQLException ignored) {}
     return conn;
   }
@@ -178,7 +178,7 @@ public record DbConfig(
       new java.util.HashMap<>();
 
   /** Loads (and caches, per jar) all JDBC drivers from {@code jar} via a child JPMS module layer. */
-  private static List<Driver> loadDriversFromJar(Path jar) throws SQLException {
+  private List<Driver> loadDriversFromJar(Path jar) throws SQLException {
     Path key = jar.toAbsolutePath().normalize();
     synchronized (DRIVER_JAR_CACHE) {
       var ref = DRIVER_JAR_CACHE.get(key);
@@ -191,7 +191,7 @@ public record DbConfig(
     }
   }
 
-  private static List<Driver> loadDriversFromJarUncached(Path jar) throws SQLException {
+  private List<Driver> loadDriversFromJarUncached(Path jar) throws SQLException {
     var moduleFinder = ModuleFinder.of(jar);
     var moduleNames  = moduleFinder.findAll().stream()
         .map(ModuleReference::descriptor)

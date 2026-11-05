@@ -98,7 +98,7 @@ class LedgerFixtureTest {
     }
   }
 
-  private static void loadFixture(Connection conn) throws Exception {
+  private void loadFixture(Connection conn) throws Exception {
     try (Statement stmt = conn.createStatement()) {
       for (String sql : Files.readString(SAMPLE_DATA.resolve("schema.sql")).split(";")) {
         sql = sql.strip();
@@ -118,7 +118,7 @@ class LedgerFixtureTest {
    * the row-count query, then the row-by-number query -- ignoring lines
    * starting with '--'. Mirrors the parsing in readLedger.java.
    */
-  private static SqlConfig parseQueries(Path file) throws Exception {
+  private SqlConfig parseQueries(Path file) throws Exception {
     List<String> statements = new ArrayList<>();
     for (String chunk : Files.readString(file).split(";")) {
       String sql = chunk.lines()

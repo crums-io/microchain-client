@@ -40,7 +40,7 @@ public class ChainConfigParserTest extends IoTestCase {
     return b;
   }
 
-  private static void assertSaltEpochsEqual(List<EpochSeed> expected, List<EpochSeed> actual) {
+  private void assertSaltEpochsEqual(List<EpochSeed> expected, List<EpochSeed> actual) {
     assertEquals(expected.size(), actual.size(), "epoch count");
     for (int i = 0; i < expected.size(); i++) {
       assertEquals(expected.get(i).startRow(), actual.get(i).startRow(), "startRow[" + i + "]");
@@ -48,7 +48,7 @@ public class ChainConfigParserTest extends IoTestCase {
     }
   }
 
-  private static void assertRoundtrip(LocalConfig.ChainConfig cfg) {
+  private void assertRoundtrip(LocalConfig.ChainConfig cfg) {
     JSONObject jObj  = PARSER.toJsonObject(cfg);
     LocalConfig.ChainConfig cfg2 = PARSER.toEntity(jObj);
     assertEquals(cfg.accessToken(),   cfg2.accessToken());

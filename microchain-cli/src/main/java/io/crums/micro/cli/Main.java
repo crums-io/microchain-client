@@ -943,7 +943,7 @@ public class Main implements Runnable {
       return 0;
     }
 
-    private static void printColumns(List<ColumnInfo> columns) {
+    private void printColumns(List<ColumnInfo> columns) {
       if (columns.isEmpty()) {
         System.out.println("(no column metadata configured)");
         return;
@@ -1154,7 +1154,7 @@ public class Main implements Runnable {
      * {@link ColumnInfo#name()} wins over the JDBC label when both are present;
      * {@code null} means the caller falls back to a bare positional index.
      */
-    private static List<String> resolveColumnLabels(List<ColumnInfo> serverColumns, List<String> jdbcLabels) {
+    private List<String> resolveColumnLabels(List<ColumnInfo> serverColumns, List<String> jdbcLabels) {
       int size = jdbcLabels.size();
       String[] labels = new String[size];
       for (int i = 0; i < size; i++) {
@@ -1166,7 +1166,7 @@ public class Main implements Runnable {
       return Arrays.asList(labels);
     }
 
-    private static void printRow(SourceRow row, boolean pretty, List<String> columnLabels, String timezone) {
+    private void printRow(SourceRow row, boolean pretty, List<String> columnLabels, String timezone) {
       if (pretty) {
         System.out.println("Row " + row.no() +
             "  (hash: " + HashEncoding.BASE64_32.encode(row.hash()) + ")");
@@ -1212,7 +1212,7 @@ public class Main implements Runnable {
     private static final DateTimeFormatter PRETTY_DATE_FORMAT =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private static String formatCellValue(Object val, DataType type, String timezone) {
+    private String formatCellValue(Object val, DataType type, String timezone) {
       if (val == null) return "NULL";
       return switch (type) {
         case STRING -> "\"" + val + "\"";
@@ -1816,7 +1816,7 @@ public class Main implements Runnable {
       }
     }
 
-    private static String lastPathSegment(String url) {
+    private String lastPathSegment(String url) {
       int i = url.lastIndexOf('/');
       return i < 0 ? url : url.substring(i + 1);
     }
