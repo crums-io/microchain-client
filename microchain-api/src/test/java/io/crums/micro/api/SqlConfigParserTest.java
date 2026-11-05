@@ -27,7 +27,7 @@ public class SqlConfigParserTest {
   static final String COUNT = "SELECT COUNT(*) FROM t";
 
 
-  // ── helpers ───────────────────────────────────────────────────────────────
+  // -- helpers ---------------------------------------------------------------
 
   private static void assertRoundtrip(SqlConfig cfg) {
     JSONObject jObj = PARSER.toJsonObject(cfg);
@@ -41,7 +41,7 @@ public class SqlConfigParserTest {
   }
 
 
-  // ── roundtrips ────────────────────────────────────────────────────────────
+  // -- roundtrips ------------------------------------------------------------
 
   @Test
   public void testRoundtrip_minimal() {
@@ -96,7 +96,7 @@ public class SqlConfigParserTest {
   }
 
 
-  // ── error cases ───────────────────────────────────────────────────────────
+  // -- error cases -----------------------------------------------------------
 
   @Test
   public void testMissingByNoQueryThrows() {
@@ -113,7 +113,7 @@ public class SqlConfigParserTest {
   }
 
 
-  // ── wither methods ────────────────────────────────────────────────────────
+  // -- wither methods --------------------------------------------------------
 
   @Test
   public void testWithJdbcUrl_onMinimal() {

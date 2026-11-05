@@ -29,8 +29,8 @@ import io.crums.util.json.simple.JSONObject;
 
 /**
  * The local config file format for microchain CLI tools ({@code --local-config}):
- * shared connection and token defaults for a set of related chains — e.g.
- * chains backed by tables in the same on-prem database — plus one
+ * shared connection and token defaults for a set of related chains -- e.g.
+ * chains backed by tables in the same on-prem database -- plus one
  * {@link ChainConfig} entry per chain, keyed by a short local alias. This is
  * the only local config file format; a lone chain is simply a file with a
  * single {@code chains} entry.
@@ -52,7 +52,7 @@ import io.crums.util.json.simple.JSONObject;
  *
  * <p>{@link #resolve(String)} merges the shared defaults under a chain's own
  * fields (the chain's own fields win), inferring {@code chain_url} as
- * {@code base_chain_url + "/" + alias} when the chain doesn't set its own —
+ * {@code base_chain_url + "/" + alias} when the chain doesn't set its own --
  * producing a fully-resolved {@link ChainConfig}, ready to feed through the
  * usual CLI-flag / local-config / server precedence for that one chain.</p>
  *
@@ -114,7 +114,7 @@ public record LocalConfig(
    * chain's own fields override the shared defaults, and {@code chain_url}
    * is inferred from {@link #baseChainUrl()} + {@code alias} when the chain
    * doesn't set its own. Fields neither the chain nor the shared defaults
-   * configure are left absent — still subject to CLI-flag overrides and
+   * configure are left absent -- still subject to CLI-flag overrides and
    * server fallback downstream.
    *
    * @throws NoSuchElementException if {@code alias} isn't in {@link #chains()}
@@ -151,8 +151,8 @@ public record LocalConfig(
   }
 
   /**
-   * Returns a copy with any relative {@code jdbc_driver_jar} path — in the
-   * shared defaults and in each chain — resolved against {@code configDir}.
+   * Returns a copy with any relative {@code jdbc_driver_jar} path -- in the
+   * shared defaults and in each chain -- resolved against {@code configDir}.
    * Called automatically by {@link Parser#toEntity(File)}.
    */
   public LocalConfig resolve(Path configDir) {
@@ -164,7 +164,7 @@ public record LocalConfig(
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<LocalConfig> {
 
@@ -242,7 +242,7 @@ public record LocalConfig(
   }
 
 
-  // ── ChainConfig ──────────────────────────────────────────────────────────
+  // -- ChainConfig ----------------------------------------------------------
 
   /**
    * One chain's config: either a raw entry under a {@link LocalConfig}'s
@@ -270,11 +270,11 @@ public record LocalConfig(
    * @param accessToken   bearer access token; overrides {@code --token} when not
    *                      also given on the command line
    * @param sqlConfig     complete SQL ledger configuration; present when both SQL
-   *                      queries are configured — skips {@code GET /sql-config}
+   *                      queries are configured -- skips {@code GET /sql-config}
    * @param looseDbConfig JDBC connection details held before SQL queries are known;
    *                      empty when {@code sqlConfig} is present
    * @param saltEpochs    epoch seeds from the {@code salts} array; empty when the
-   *                      key is absent — skips {@code GET /salts} when non-empty
+   *                      key is absent -- skips {@code GET /salts} when non-empty
    * @param salted        whether this chain's cells are salted; when present
    *                      alongside {@link #saltEpochs()}, enables fully offline
    *                      operation without fetching {@code GET /info} from the server
@@ -299,7 +299,7 @@ public record LocalConfig(
     }
 
 
-    // ── Resolving convenience methods ─────────────────────────────────────
+    // -- Resolving convenience methods -------------------------------------
 
     /**
      * Resolves {@link DbConfig} from {@link #sqlConfig()} when present,
@@ -327,7 +327,7 @@ public record LocalConfig(
     }
 
 
-    // ── Wither methods ──────────────────────────────────────────────────────
+    // -- Wither methods ------------------------------------------------------
 
     public ChainConfig withChainUrl(String url) {
       return new ChainConfig(Optional.of(url), accessToken, sqlConfig, looseDbConfig, saltEpochs, salted);
@@ -365,7 +365,7 @@ public record LocalConfig(
     }
 
 
-    // ── Path resolution ─────────────────────────────────────────────────────
+    // -- Path resolution -----------------------------------------------------
 
     /**
      * Returns a copy of this config with any relative {@code jdbc_driver_jar}
@@ -385,7 +385,7 @@ public record LocalConfig(
     }
 
 
-    // ── JSON parser ───────────────────────────────────────────────────────
+    // -- JSON parser -------------------------------------------------------
 
     public static class Parser implements JsonEntityParser<ChainConfig> {
 

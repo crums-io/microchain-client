@@ -31,7 +31,7 @@ public class ChainConfigParserTest extends IoTestCase {
   private static final LocalConfig.ChainConfig.Parser PARSER = LocalConfig.ChainConfig.PARSER;
 
 
-  // ── helpers ───────────────────────────────────────────────────────────────
+  // -- helpers ---------------------------------------------------------------
 
   /** Returns a deterministic 32-byte seed filled with {@code fill}. */
   static byte[] seed(int fill) {
@@ -59,7 +59,7 @@ public class ChainConfigParserTest extends IoTestCase {
   }
 
 
-  // ── roundtrips ────────────────────────────────────────────────────────────
+  // -- roundtrips ------------------------------------------------------------
 
   @Test
   public void testRoundtrip_empty() {
@@ -146,24 +146,24 @@ public class ChainConfigParserTest extends IoTestCase {
   }
 
 
-  // ── partial-state / structural tests ─────────────────────────────────────
+  // -- partial-state / structural tests -------------------------------------
 
   @Test
   public void testPartialState_jdbcUrlWithoutQueries() {
-    // jdbc_url in JSON but no SQL queries → parsed as looseDbConfig, not sqlConfig
+    // jdbc_url in JSON but no SQL queries -> parsed as looseDbConfig, not sqlConfig
     JSONObject jObj = new JSONObject();
     jObj.put(JDBC_URL_KEY, "jdbc:h2:mem:partial");
 
     LocalConfig.ChainConfig cfg = PARSER.toEntity(jObj);
     assertTrue(cfg.sqlConfig().isEmpty(),       "no sqlConfig when queries absent");
-    assertTrue(cfg.looseDbConfig().isPresent(), "jdbc_url alone → looseDbConfig");
+    assertTrue(cfg.looseDbConfig().isPresent(), "jdbc_url alone -> looseDbConfig");
     assertEquals("jdbc:h2:mem:partial",
         cfg.looseDbConfig().get().jdbcUrl().orElseThrow());
   }
 
   @Test
   public void testPartialState_driverClassWithoutUrl() {
-    // jdbc_driver_class alone (no url, no queries) → looseDbConfig
+    // jdbc_driver_class alone (no url, no queries) -> looseDbConfig
     JSONObject jObj = new JSONObject();
     jObj.put(JDBC_DRIVER_CLASS_KEY, "org.h2.Driver");
 
@@ -191,7 +191,7 @@ public class ChainConfigParserTest extends IoTestCase {
   }
 
 
-  // ── wither routing ────────────────────────────────────────────────────────
+  // -- wither routing --------------------------------------------------------
 
   @Test
   public void testWithDbConfig_routesIntoSqlConfig() {
@@ -244,7 +244,7 @@ public class ChainConfigParserTest extends IoTestCase {
   }
 
 
-  // ── salted ────────────────────────────────────────────────────────────────────
+  // -- salted --------------------------------------------------------------------
 
   @Test
   public void testRoundtrip_saltedTrue() {
@@ -266,7 +266,7 @@ public class ChainConfigParserTest extends IoTestCase {
 
   @Test
   public void testRoundtrip_saltedWithEpochs() {
-    // 'salted' alongside salt epochs — the combo needed for fully offline rows
+    // 'salted' alongside salt epochs -- the combo needed for fully offline rows
     List<EpochSeed> epochs = List.of(new EpochSeed(1L, seed(0xAB)));
     LocalConfig.ChainConfig cfg = LocalConfig.ChainConfig.EMPTY
         .withSalted(true)
@@ -284,7 +284,7 @@ public class ChainConfigParserTest extends IoTestCase {
   }
 
 
-  // ── file-loading (Parser.toEntity(File) resolves relative jdbc_driver_jar) ──
+  // -- file-loading (Parser.toEntity(File) resolves relative jdbc_driver_jar) --
 
   @Test
   public void testToEntityFile_resolvesRelativeDriverJar() throws Exception {

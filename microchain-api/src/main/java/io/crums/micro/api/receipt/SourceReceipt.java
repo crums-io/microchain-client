@@ -43,7 +43,7 @@ import io.crums.util.json.simple.JSONObject;
  * {@link #rows()}, its hash (via {@link SourceRow#hash()}, over its
  * possibly-redacted cells) is compared against {@link PathPack}'s input
  * hash at that row number, so an instance with a {@link #state()} present
- * can never disagree with it. Both steps are pure hashing/comparison — no
+ * can never disagree with it. Both steps are pure hashing/comparison -- no
  * secrets, no server trust beyond wherever the {@link PathPack} came from.</p>
  */
 public class SourceReceipt {
@@ -157,14 +157,14 @@ public class SourceReceipt {
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<SourceReceipt> {
 
     /**
      * Matches the field names {@code GET /{user}/{chain}/state} uses
      * ({@code stitch_rows} / {@code compression} / {@code hashes}; see
-     * {@code ChainClient.STATE_PARSER}). Not centralized — {@code
+     * {@code ChainClient.STATE_PARSER}). Not centralized -- {@code
      * PathPackParser} itself defines no constants for these; see the
      * "deduplicate API constants" TODO.
      */

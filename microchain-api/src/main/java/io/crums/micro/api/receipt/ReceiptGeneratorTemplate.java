@@ -48,7 +48,7 @@ public record ReceiptGeneratorTemplate(List<RowSelector> chains) {
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<ReceiptGeneratorTemplate> {
 

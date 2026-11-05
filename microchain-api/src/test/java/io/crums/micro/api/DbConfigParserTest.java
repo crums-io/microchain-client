@@ -24,7 +24,7 @@ public class DbConfigParserTest {
   private static final DbConfig.Parser PARSER = DbConfig.PARSER;
 
 
-  // ── helpers ───────────────────────────────────────────────────────────────
+  // -- helpers ---------------------------------------------------------------
 
   private static void assertRoundtrip(DbConfig cfg) {
     JSONObject jObj = PARSER.toJsonObject(cfg);
@@ -36,7 +36,7 @@ public class DbConfigParserTest {
   }
 
 
-  // ── roundtrips ────────────────────────────────────────────────────────────
+  // -- roundtrips ------------------------------------------------------------
 
   @Test
   public void testRoundtrip_both() {
@@ -110,7 +110,7 @@ public class DbConfigParserTest {
   }
 
 
-  // ── resolve ───────────────────────────────────────────────────────────────
+  // -- resolve ---------------------------------------------------------------
 
   @Test
   public void testResolve_relativePathMadeAbsolute() {
@@ -140,7 +140,7 @@ public class DbConfigParserTest {
   }
 
 
-  // ── merge ─────────────────────────────────────────────────────────────────
+  // -- merge -----------------------------------------------------------------
 
   @Test
   public void testMerge_overridesWin() {
@@ -182,7 +182,7 @@ public class DbConfigParserTest {
   }
 
 
-  // ── structural ────────────────────────────────────────────────────────────
+  // -- structural ------------------------------------------------------------
 
   @Test
   public void testInjectIntoSharedObject() {

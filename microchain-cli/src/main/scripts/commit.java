@@ -196,8 +196,8 @@ class commit implements Callable<Integer> {
    *
    * <p>Returns {@link ChainConfig#EMPTY} when {@code localConfigFile} is
    * {@code null} ({@code chainAlias} must then also be null). On any
-   * failure — unreadable file, unknown alias, or an empty/ambiguous set of
-   * chains when no alias was given — prints an {@code ERROR:} line and
+   * failure -- unreadable file, unknown alias, or an empty/ambiguous set of
+   * chains when no alias was given -- prints an {@code ERROR:} line and
    * returns {@code null}.</p>
    */
   private static ChainConfig resolveLocalConfig(File localConfigFile, String chainAlias) {
@@ -253,7 +253,7 @@ class commit implements Callable<Integer> {
 
   @Override
   public Integer call() throws Exception {
-    // ── option validation (before any I/O) ─────────────────────────────────
+    // -- option validation (before any I/O) ---------------------------------
     if (toOverride != null && lagOverride != null) {
       System.err.println("ERROR: --to and --lag are mutually exclusive");
       return 1;
@@ -275,7 +275,7 @@ class commit implements Callable<Integer> {
       return 1;
     }
 
-    // ── load local config (if provided) ────────────────────────────────────
+    // -- load local config (if provided) ------------------------------------
     ChainConfig localCfg = resolveLocalConfig(localConfigFile, chainAlias);
     if (localCfg == null) return 1;
 
@@ -286,7 +286,7 @@ class commit implements Callable<Integer> {
       return 1;
     }
 
-    // ── network + DB ───────────────────────────────────────────────────────
+    // -- network + DB -------------------------------------------------------
     URI base = URI.create(chainUrl.getScheme() + "://" + chainUrl.getAuthority());
     String[] parts = chainUrl.getPath().split("/");
     String username = parts[parts.length - 2];
@@ -377,7 +377,7 @@ class commit implements Callable<Integer> {
               ledger.getSourceRow(rn).hash()));
         }
         var resp = client.commit(effectiveToken, new CommitRequest(from, hashes));
-        System.out.println("  Committed rows " + from + "–" + to +
+        System.out.println("  Committed rows " + from + "-" + to +
             "  (chain total: " + resp.rowCount() + ")");
         from = to + 1;
       }

@@ -7,10 +7,10 @@
  *
  * <p>Currently implemented endpoints:</p>
  * <ul>
- *   <li>{@code GET /{user}/{chain}/state} —
+ *   <li>{@code GET /{user}/{chain}/state} --
  *       {@link io.crums.micro.http.ChainClient#getState()} /
  *       {@link io.crums.micro.http.ChainClient#getState(java.util.List, boolean, boolean)}
- *       → {@link io.crums.sldg.Path}</li>
+ *       -> {@link io.crums.sldg.Path}</li>
  * </ul>
  *
  * <p>Planned: {@code /info}, {@code /salts}, {@code /sql-config}, {@code /commit}.

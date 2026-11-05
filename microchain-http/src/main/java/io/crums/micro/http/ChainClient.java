@@ -41,12 +41,12 @@ import io.crums.util.json.simple.parser.ParseException;
  *
  * <h2>Endpoints</h2>
  * <ul>
- *   <li>{@link #getInfo()} — {@code GET /info}</li>
- *   <li>{@link #getSalts(String)} — {@code GET /salts}</li>
- *   <li>{@link #getSqlConfig(String)} — {@code GET /sql-config}</li>
- *   <li>{@link #getState()} — {@code GET /state?rows=last}</li>
- *   <li>{@link #getState(List, boolean, boolean)} — {@code GET /state?rows=...} with explicit rows</li>
- *   <li>{@link #commit(String, CommitRequest)} — {@code POST /commit}</li>
+ *   <li>{@link #getInfo()} -- {@code GET /info}</li>
+ *   <li>{@link #getSalts(String)} -- {@code GET /salts}</li>
+ *   <li>{@link #getSqlConfig(String)} -- {@code GET /sql-config}</li>
+ *   <li>{@link #getState()} -- {@code GET /state?rows=last}</li>
+ *   <li>{@link #getState(List, boolean, boolean)} -- {@code GET /state?rows=...} with explicit rows</li>
+ *   <li>{@link #commit(String, CommitRequest)} -- {@code POST /commit}</li>
  * </ul>
  */
 public class ChainClient {
@@ -81,10 +81,10 @@ public class ChainClient {
   public String chain()    { return chain; }
 
 
-  // ── /info ────────────────────────────────────────────────────────────────────
+  // -- /info --------------------------------------------------------------------
 
   /**
-   * {@code GET /{user}/{chain}/info} — public chain metadata.
+   * {@code GET /{user}/{chain}/info} -- public chain metadata.
    *
    * @return chain metadata, or empty if the chain does not exist
    * @throws IOException          on HTTP failure
@@ -100,10 +100,10 @@ public class ChainClient {
   }
 
 
-  // ── /salts ────────────────────────────────────────────────────────────────────
+  // -- /salts --------------------------------------------------------------------
 
   /**
-   * {@code GET /{user}/{chain}/salts} — salt seeds for this chain.
+   * {@code GET /{user}/{chain}/salts} -- salt seeds for this chain.
    *
    * <p>The returned {@link TableSalt} is assembled from all epoch seeds in the
    * response array via {@link TableSaltReader}.</p>
@@ -122,10 +122,10 @@ public class ChainClient {
   }
 
 
-  // ── /sql-config ───────────────────────────────────────────────────────────────
+  // -- /sql-config ---------------------------------------------------------------
 
   /**
-   * {@code GET /{user}/{chain}/sql-config} — SQL ledger configuration.
+   * {@code GET /{user}/{chain}/sql-config} -- SQL ledger configuration.
    *
    * <p>The returned {@link SqlConfig} carries the JDBC queries and optional
    * connection URL needed to open a local {@code SqlLedger}.</p>
@@ -144,10 +144,10 @@ public class ChainClient {
   }
 
 
-  // ── /columns ──────────────────────────────────────────────────────────────────
+  // -- /columns ------------------------------------------------------------------
 
   /**
-   * {@code GET /{user}/{chain}/columns} — decorative column metadata, public.
+   * {@code GET /{user}/{chain}/columns} -- decorative column metadata, public.
    *
    * <p>Unlike {@link #getSqlConfig(String)}, this requires no token: column
    * names/descriptions are non-sensitive and are needed to render receipts
@@ -168,7 +168,7 @@ public class ChainClient {
   }
 
   /**
-   * {@code PUT /{user}/{chain}/columns} — replaces the chain's column metadata.
+   * {@code PUT /{user}/{chain}/columns} -- replaces the chain's column metadata.
    *
    * @param token   Bearer access token
    * @param columns full replacement list; pass an empty list to clear
@@ -185,10 +185,10 @@ public class ChainClient {
   }
 
 
-  // ── /state ────────────────────────────────────────────────────────────────────
+  // -- /state --------------------------------------------------------------------
 
   /**
-   * {@code GET /{user}/{chain}/state?rows=last} — singleton path for the
+   * {@code GET /{user}/{chain}/state?rows=last} -- singleton path for the
    * latest committed row.
    *
    * <p>Used by the commit workflow to read the current committed row count and
@@ -235,10 +235,10 @@ public class ChainClient {
   }
 
 
-  // ── /commit ───────────────────────────────────────────────────────────────────
+  // -- /commit -------------------------------------------------------------------
 
   /**
-   * {@code POST /{user}/{chain}/commit} — appends hashed rows to the chain.
+   * {@code POST /{user}/{chain}/commit} -- appends hashed rows to the chain.
    *
    * <p>The endpoint is idempotent: re-submitting the same rows at the same
    * {@code startRow} is safe as long as the hashes match.  A mismatch
@@ -264,7 +264,7 @@ public class ChainClient {
   }
 
 
-  // ── private HTTP helpers ──────────────────────────────────────────────────────
+  // -- private HTTP helpers ------------------------------------------------------
 
   private HttpResponse<String> httpGet(String url)
       throws IOException, InterruptedException {
@@ -319,8 +319,8 @@ public class ChainClient {
     int s = resp.statusCode();
     if (s == 200) return;
     if (s == 401)
-      throw new SecurityException(url + " → 401: unauthorized (invalid or missing token)");
-    throw new IOException(url + " → " + s + ": " + resp.body());
+      throw new SecurityException(url + " -> 401: unauthorized (invalid or missing token)");
+    throw new IOException(url + " -> " + s + ": " + resp.body());
   }
 
   private Optional<Path> fetchState(String url) throws IOException, InterruptedException {

@@ -115,7 +115,7 @@ public final class ChainReceipt extends SourceReceipt {
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<ChainReceipt> {
 

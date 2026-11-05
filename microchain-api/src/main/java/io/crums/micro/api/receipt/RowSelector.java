@@ -20,13 +20,13 @@ import io.crums.util.json.simple.JSONObject;
  * One chain's row-selection step within a {@link ReceiptGeneratorTemplate}.
  *
  * <h2>Syntax</h2>
- * <p>{@code where} is ordinary, valid SQL — the same shape {@code mchain
+ * <p>{@code where} is ordinary, valid SQL -- the same shape {@code mchain
  * rows --where} accepts, with zero or more {@code ?} placeholders. {@code
  * args} supplies exactly one value per {@code ?}, each either:</p>
  * <ul>
- *   <li>{@code ROW_NO(:alias)} — the row number of the single row already
+ *   <li>{@code ROW_NO(:alias)} -- the row number of the single row already
  *       resolved for the earlier chain entry {@code alias}</li>
- *   <li>{@code :alias.column} — a named column's value from that same
+ *   <li>{@code :alias.column} -- a named column's value from that same
  *       already-resolved row</li>
  * </ul>
  * <p>Both forms require {@code alias} to name a chain declared <em>earlier</em>
@@ -39,12 +39,12 @@ import io.crums.util.json.simple.JSONObject;
  * every {@code ?} in its {@code where} (or, if {@code where} itself is
  * absent, the single caller-supplied input directly as a row number) binds
  * straight to the caller-supplied generation-time inputs, in order. That
- * first entry's selector must resolve to exactly one row — zero or more
+ * first entry's selector must resolve to exactly one row -- zero or more
  * than one is an error, since every later entry's {@code ROW_NO(:first)} /
  * {@code :first.column} ultimately traces back to it. Every other entry
  * fully specifies {@code args} and may resolve to any number of rows.</p>
  *
- * <p>{@code chain} names a local alias — it must match a key already
+ * <p>{@code chain} names a local alias -- it must match a key already
  * present under the same local config file's {@code chains} object, from
  * which the JDBC connection, queries, and {@code chain_url} for this entry
  * are all drawn; there is no separate override here.</p>
@@ -71,7 +71,7 @@ public record RowSelector(
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<RowSelector> {
 

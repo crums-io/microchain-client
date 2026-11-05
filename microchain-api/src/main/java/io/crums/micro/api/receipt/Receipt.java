@@ -13,7 +13,7 @@ import io.crums.util.json.JsonUtils;
 import io.crums.util.json.simple.JSONObject;
 
 /**
- * One or more related ledger source-rows, grouped by chain — the data
+ * One or more related ledger source-rows, grouped by chain -- the data
  * backing a tamper-evident "receipt" (see the project README's "Tamper-
  * evident receipts" section).
  *
@@ -21,7 +21,7 @@ import io.crums.util.json.simple.JSONObject;
  * {@link ChainReceipt#state()} is empty. Attaching a commitment path per
  * entry (fetched from each chain's {@code GET /state}, or in one round
  * trip (via the {@code /_verify} endpoint) upgrades it to
- * <em>anchored</em> — see {@link ChainReceipt}.</p>
+ * <em>anchored</em> -- see {@link ChainReceipt}.</p>
  */
 public class Receipt {
 
@@ -69,7 +69,7 @@ public class Receipt {
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<Receipt> {
 

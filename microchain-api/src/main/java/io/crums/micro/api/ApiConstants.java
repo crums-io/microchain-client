@@ -44,11 +44,11 @@ public class ApiConstants {
   public static final String ACCESS_TOKEN_KEY = "access_token";
   public static final String SALTS_KEY        = "salts";
 
-  // local config file — 'chains' object and shared-default URL prefix
+  // local config file -- 'chains' object and shared-default URL prefix
   public static final String CHAINS_KEY         = "chains";
   public static final String BASE_CHAIN_URL_KEY = "base_chain_url";
 
-  // local config file — 'receipt_templates' object
+  // local config file -- 'receipt_templates' object
   public static final String RECEIPT_TEMPLATES_KEY = "receipt_templates";
   public static final String CHAIN_KEY             = "chain";
   public static final String WHERE_KEY             = "where";

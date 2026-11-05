@@ -37,7 +37,7 @@ import io.crums.sldg.src.SourceRow;
  * own bound values from a row already resolved for an earlier chain).
  *
  * <p>Every chain touched must resolve a complete {@code sql-config} and
- * salt story — locally, or (for the salt/sql-config pieces) from the
+ * salt story -- locally, or (for the salt/sql-config pieces) from the
  * server, exactly as {@code mchain rows} does via {@link
  * Main#resolveQueryConfig}. There is no notion of "dry run" here: a
  * receipt's rows must hash the same way the real chain would commit them.</p>
@@ -72,10 +72,10 @@ public class ReceiptGenerator {
   }
 
   /**
-   * Generates a draft receipt (no {@code state} attached yet — see {@code
+   * Generates a draft receipt (no {@code state} attached yet -- see {@code
    * mchain receipt anchor}) for {@code template}, binding its first
-   * selector's {@code ?} placeholders — or, if it has no {@code where},
-   * the single row-number lookup — to {@code inputs}, in order.
+   * selector's {@code ?} placeholders -- or, if it has no {@code where},
+   * the single row-number lookup -- to {@code inputs}, in order.
    *
    * @throws IllegalStateException   if the first chain doesn't resolve to
    *         exactly one row, or any referenced chain alias/column can't be
@@ -104,12 +104,12 @@ public class ReceiptGenerator {
   private ChainReceipt toChainReceipt(String alias, Resolved resolved) {
     ChainConfig chainCfg = localConfig.resolve(alias);
     String chainUrl = chainCfg.chainUrl().orElseThrow(() -> new IllegalStateException(
-        "no resolvable chain_url for '" + alias + "' — set it explicitly or add " +
+        "no resolvable chain_url for '" + alias + "' -- set it explicitly or add " +
         "'base_chain_url' to --local-config"));
     return new ChainReceipt(chainUrl, resolved.rows(), Optional.empty());
   }
 
-  // ── first (driver) chain ─────────────────────────────────────────────────
+  // -- first (driver) chain -------------------------------------------------
 
   private Resolved resolveFirst(RowSelector sel, List<String> inputs)
       throws SQLException, IOException, InterruptedException {
@@ -118,7 +118,7 @@ public class ReceiptGenerator {
     if (sel.where().isEmpty()) {
       if (inputs.size() != 1)
         throw new IllegalStateException(
-            "'" + alias + "' has no 'where' (row-number lookup) — expects exactly 1 input, got "
+            "'" + alias + "' has no 'where' (row-number lookup) -- expects exactly 1 input, got "
             + inputs.size());
       long rowNo;
       try {
@@ -152,7 +152,7 @@ public class ReceiptGenerator {
     }
   }
 
-  // ── later chains ─────────────────────────────────────────────────────────
+  // -- later chains ---------------------------------------------------------
 
   private Resolved resolveLater(RowSelector sel, Map<String, Resolved> resolvedByAlias)
       throws SQLException, IOException, InterruptedException {
@@ -165,7 +165,7 @@ public class ReceiptGenerator {
     for (String expr : sel.args()) {
       Object value = resolveArg(expr, resolvedByAlias);
       if (value == null)
-        return new Resolved(List.of(), List.of()); // no value upstream → no rows, not an error
+        return new Resolved(List.of(), List.of()); // no value upstream -> no rows, not an error
       boundArgs.add(value);
     }
 
@@ -218,10 +218,10 @@ public class ReceiptGenerator {
     return -1;
   }
 
-  // ── DB plumbing ──────────────────────────────────────────────────────────
+  // -- DB plumbing ----------------------------------------------------------
 
   /**
-   * A chain's open connection and {@link DisplaySqlLedger} — used both for
+   * A chain's open connection and {@link DisplaySqlLedger} -- used both for
    * row-number lookups (it extends {@link LabeledSqlLedger}, so {@code
    * getSourceRow(long)} is inherited) and WHERE-clause lookups.
    */

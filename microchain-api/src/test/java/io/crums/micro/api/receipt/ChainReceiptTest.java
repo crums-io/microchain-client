@@ -26,7 +26,7 @@ import io.crums.util.json.simple.JSONObject;
 
 /**
  * Tests {@link ChainReceipt}'s constructor-time validation (sorted/no-dup
- * rows, and — when {@code state} is present — that each row's hash agrees
+ * rows, and -- when {@code state} is present -- that each row's hash agrees
  * with the attached commitment path) against a <em>real</em> in-memory
  * skipledger, rather than mocks; also {@link ChainReceipt}/{@link Receipt}/
  * {@link SourceReceipt}'s JSON round-trip and {@code equals}/{@code
@@ -34,17 +34,17 @@ import io.crums.util.json.simple.JSONObject;
  *
  * <h2>Fixture</h2>
  * <p>For each mock chain: 10 source rows numbered 100-109 are built via
- * {@link SourceRowBuilder} (not from a DB — that layer isn't under test
+ * {@link SourceRowBuilder} (not from a DB -- that layer isn't under test
  * here); 99 filler rows (1-99, random input hashes) are committed to an
  * in-memory {@link SkipLedger} first, then the 10 real rows' hashes, so the
- * receipt's rows sit well past row 1 — the realistic case, since a receipt
+ * receipt's rows sit well past row 1 -- the realistic case, since a receipt
  * is almost never anchored at the very start of a chain. A path covering
  * exactly rows 100-109 is then fetched and packed, matching exactly what
- * {@code mchain receipt anchor} itself requests (target rows + "last" —
+ * {@code mchain receipt anchor} itself requests (target rows + "last" --
  * never "row 1" unless it happens to be a target).</p>
  *
  * <h2>Salt coverage</h2>
- * <p>Rows are either entirely unsalted or entirely salted — {@code
+ * <p>Rows are either entirely unsalted or entirely salted -- {@code
  * SourceRow} has no notion of per-column salting (mixed schemes were
  * dropped as an unneeded feature).</p>
  */
@@ -59,7 +59,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── fixture builders ─────────────────────────────────────────────────────
+  // -- fixture builders -----------------------------------------------------
 
   /** Builds 10 source rows numbered 100-109 using the given salt scheme. */
   private static List<SourceRow> buildRealRows(TableSalt salt) {
@@ -89,7 +89,7 @@ public class ChainReceiptTest {
 
   /**
    * Fetches a path covering exactly {@code targetRows}' row numbers from
-   * {@code ledger} (not "from row 1"), and packs it — the same shape
+   * {@code ledger} (not "from row 1"), and packs it -- the same shape
    * {@code mchain receipt anchor} itself produces via {@code GET /state}.
    */
   private static PathPack anchorPack(SkipLedger ledger, List<SourceRow> targetRows) {
@@ -124,7 +124,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── single-chain, anchored ───────────────────────────────────────────────
+  // -- single-chain, anchored -----------------------------------------------
 
   @Test
   public void testAnchored_noSalt_multiRow_succeeds() {
@@ -175,7 +175,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── tamper detection ──────────────────────────────────────────────────────
+  // -- tamper detection ------------------------------------------------------
 
   @Test
   public void testAnchored_tamperedMiddleRow_throwsHashConflict() {
@@ -183,7 +183,7 @@ public class ChainReceiptTest {
     PathPack pack = anchorPack(rows); // path committed against the ORIGINAL rows
 
     // Swap in a row with different cell content (and thus a different hash)
-    // at the same row number — simulates a tampered/mismatched receipt.
+    // at the same row number -- simulates a tampered/mismatched receipt.
     SourceRowBuilder builder = new SourceRowBuilder();
     SourceRow tampered = builder.buildRow(104L, "TAMPERED", -1L);
     List<SourceRow> badRows = new ArrayList<>(rows);
@@ -222,7 +222,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── structural validation (no state needed) ──────────────────────────────
+  // -- structural validation (no state needed) ------------------------------
 
   @Test
   public void testEmptyRowsThrows() {
@@ -254,7 +254,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── draft (no state) ──────────────────────────────────────────────────────
+  // -- draft (no state) ------------------------------------------------------
 
   @Test
   public void testDraft_noStateRequiredForConstruction() {
@@ -264,7 +264,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── multi-chain receipt ────────────────────────────────────────────────────
+  // -- multi-chain receipt ----------------------------------------------------
 
   @Test
   public void testMultiChainReceipt_bothAnchored() {
@@ -285,7 +285,7 @@ public class ChainReceiptTest {
   }
 
 
-  // ── json roundtrip / equals/hashCode ─────────────────────────────────────
+  // -- json roundtrip / equals/hashCode -------------------------------------
 
   @Test
   public void testRoundtrip_draft() {

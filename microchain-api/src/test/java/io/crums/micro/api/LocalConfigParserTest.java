@@ -38,7 +38,7 @@ public class LocalConfigParserTest extends IoTestCase {
   private static final LocalConfig.Parser PARSER = LocalConfig.PARSER;
 
 
-  // ── helpers ───────────────────────────────────────────────────────────────
+  // -- helpers ---------------------------------------------------------------
 
   private static void assertRoundtrip(LocalConfig cfg) {
     JSONObject jObj = PARSER.toJsonObject(cfg);
@@ -53,7 +53,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── roundtrips ────────────────────────────────────────────────────────────
+  // -- roundtrips ------------------------------------------------------------
 
   @Test
   public void testRoundtrip_minimal() {
@@ -194,7 +194,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── structural / error cases ──────────────────────────────────────────────
+  // -- structural / error cases ----------------------------------------------
 
   @Test
   public void testMalformedChainsEntryThrows() {
@@ -230,7 +230,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── resolve(String alias) ─────────────────────────────────────────────────
+  // -- resolve(String alias) -------------------------------------------------
 
   @Test
   public void testResolve_chainUrlInferredFromBaseChainUrl() {
@@ -304,7 +304,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── resolveTemplate(String name) ──────────────────────────────────────────
+  // -- resolveTemplate(String name) ------------------------------------------
 
   @Test
   public void testResolveTemplate_found() {
@@ -327,7 +327,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── resolve(Path configDir) ────────────────────────────────────────────────
+  // -- resolve(Path configDir) ------------------------------------------------
 
   @Test
   public void testResolvePath_resolvesSharedAndPerChainRelativeJar() throws Exception {
@@ -405,7 +405,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── misc ──────────────────────────────────────────────────────────────────
+  // -- misc ------------------------------------------------------------------
 
   @Test
   public void testChainAliasesAndTemplateNames() {
@@ -420,7 +420,7 @@ public class LocalConfigParserTest extends IoTestCase {
   }
 
 
-  // ── local helpers ─────────────────────────────────────────────────────────
+  // -- local helpers ---------------------------------------------------------
 
   /** Builds an order-preserving {@code Map<String, ChainConfig>} from alternating key/value pairs. */
   private static Map<String, ChainConfig> orderedChains(Object... kv) {

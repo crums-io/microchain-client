@@ -62,7 +62,7 @@ public record SqlConfig(
   }
 
 
-  // ── Convenience delegation to DbConfig ───────────────────────────────────
+  // -- Convenience delegation to DbConfig -----------------------------------
 
   public Optional<String> jdbcUrl() {
     return dbConfig.flatMap(DbConfig::jdbcUrl);
@@ -73,7 +73,7 @@ public record SqlConfig(
   }
 
 
-  // ── Connection factory ────────────────────────────────────────────────────
+  // -- Connection factory ----------------------------------------------------
 
   /** Opens a JDBC connection; equivalent to {@code openConnection(null)}. */
   public Connection openConnection() throws SQLException {
@@ -94,7 +94,7 @@ public record SqlConfig(
   }
 
 
-  // ── SqlLedger factory ─────────────────────────────────────────────────────
+  // -- SqlLedger factory -----------------------------------------------------
 
   /**
    * Opens a {@link SqlLedger} on the given connection.
@@ -113,7 +113,7 @@ public record SqlConfig(
   }
 
 
-  // ── Wither methods ────────────────────────────────────────────────────────
+  // -- Wither methods --------------------------------------------------------
 
   public SqlConfig withByNoQuery(String q) {
     return new SqlConfig(q, rowCountQuery, dbConfig, timezone, defaultLag);
@@ -146,7 +146,7 @@ public record SqlConfig(
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   public static class Parser implements JsonEntityParser<SqlConfig> {
 

@@ -31,7 +31,7 @@ import io.crums.util.json.simple.JSONObject;
  * optional connection properties (e.g. {@code user}, {@code password}).
  *
  * <p>Extracted from {@link SqlConfig} so that the connection details can be
- * carried independently — in particular, a {@link LocalConfig.ChainConfig} may hold a
+ * carried independently -- in particular, a {@link LocalConfig.ChainConfig} may hold a
  * {@code DbConfig} before its SQL queries are known (the partial / dry-run
  * setup state).</p>
  *
@@ -64,7 +64,7 @@ public record DbConfig(
   public static final Parser PARSER = new Parser();
 
 
-  // ── Connection factory ────────────────────────────────────────────────────
+  // -- Connection factory ----------------------------------------------------
 
   /** Opens a JDBC connection; equivalent to {@code openConnection(null)}. */
   public Connection openConnection() throws SQLException {
@@ -80,10 +80,10 @@ public record DbConfig(
    *
    * <p>Driver loading priority:
    * <ol>
-   *   <li>{@link #jdbcDriverJar()} — loaded dynamically via the JPMS module layer.</li>
-   *   <li>{@link #jdbcDriverClass()} — loaded via {@link Class#forName(String)};
+   *   <li>{@link #jdbcDriverJar()} -- loaded dynamically via the JPMS module layer.</li>
+   *   <li>{@link #jdbcDriverClass()} -- loaded via {@link Class#forName(String)};
    *       the driver must already be on the classpath.</li>
-   *   <li>Neither — relies on {@link DriverManager} auto-detection.</li>
+   *   <li>Neither -- relies on {@link DriverManager} auto-detection.</li>
    * </ol>
    *
    * <p>{@code overrides} (typically from CLI flags) takes precedence over
@@ -138,7 +138,7 @@ public record DbConfig(
   }
 
 
-  // ── Resolve and merge ─────────────────────────────────────────────────────
+  // -- Resolve and merge -----------------------------------------------------
 
   /**
    * Returns a copy of this config with any relative {@link #jdbcDriverJar()}
@@ -173,7 +173,7 @@ public record DbConfig(
   // Values are weakly held so the cache self-releases: once nothing (e.g. no
   // open Connection, which keeps its defining ClassLoader reachable) still
   // needs the loaded drivers, the entry can be collected without an explicit
-  // close/shutdown call — java.sql.Driver has no such method anyway.
+  // close/shutdown call -- java.sql.Driver has no such method anyway.
   private static final Map<Path, java.lang.ref.WeakReference<List<Driver>>> DRIVER_JAR_CACHE =
       new java.util.HashMap<>();
 
@@ -216,7 +216,7 @@ public record DbConfig(
   }
 
 
-  // ── Wither methods ────────────────────────────────────────────────────────
+  // -- Wither methods --------------------------------------------------------
 
   public DbConfig withJdbcUrl(String url) {
     return new DbConfig(Optional.of(url), jdbcDriverClass, jdbcDriverJar, jdbcProps);
@@ -235,7 +235,7 @@ public record DbConfig(
   }
 
 
-  // ── JSON parser ───────────────────────────────────────────────────────────
+  // -- JSON parser -----------------------------------------------------------
 
   /**
    * Parses and writes {@code jdbc_url}, {@code jdbc_driver_class},

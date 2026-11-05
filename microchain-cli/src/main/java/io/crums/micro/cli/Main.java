@@ -104,13 +104,13 @@ public class Main implements Runnable {
   }
 
 
-  // ── help ─────────────────────────────────────────────────────────────────────
+  // -- help ---------------------------------------------------------------------
 
   /**
    * Replaces {@code picocli.CommandLine.HelpCommand} (registered under every
    * level of subcommands below) so that a path of subcommand names drills all
    * the way down to a deeply-nested command, e.g. {@code mchain help receipt
-   * generate}. The picocli built-in only accepts a single name — extra names
+   * generate}. The picocli built-in only accepts a single name -- extra names
    * are silently dropped, printing the wrong (shallower) command's help with
    * no indication anything was ignored.
    */
@@ -145,7 +145,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── shared positional argument ───────────────────────────────────────────────
+  // -- shared positional argument -----------------------------------------------
 
   static class ChainOptions {
 
@@ -171,7 +171,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── commit ───────────────────────────────────────────────────────────────────
+  // -- commit -------------------------------------------------------------------
 
   @Command(
       name = "commit",
@@ -179,12 +179,12 @@ public class Main implements Runnable {
           "Hash new rows from the local database and commit them to the chain.",
           "",
           "Workflow:",
-          "  1. GET /info        → salted (true/false)",
-          "  2. GET /salts       → table salt (token required)",
-          "  3. GET /sql-config  → JDBC queries",
-          "  4. GET /state       → current committed row count N",
+          "  1. GET /info        -> salted (true/false)",
+          "  2. GET /salts       -> table salt (token required)",
+          "  3. GET /sql-config  -> JDBC queries",
+          "  4. GET /state       -> current committed row count N",
           "  5. Open local SqlLedger, hash rows N..M  (see --from / --to / --lag)",
-          "  6. POST /commit     → updated row count"
+          "  6. POST /commit     -> updated row count"
       })
   static class CommitCommand implements Callable<Integer> {
 
@@ -282,7 +282,7 @@ public class Main implements Runnable {
 
     @Override
     public Integer call() throws Exception {
-      // ── option validation (before any I/O) ───────────────────────────────────
+      // -- option validation (before any I/O) -----------------------------------
       if (toOverride != null && lagOverride != null) {
         System.err.println("ERROR: --to and --lag are mutually exclusive");
         return 1;
@@ -304,7 +304,7 @@ public class Main implements Runnable {
         return 1;
       }
 
-      // ── load local config (if provided) ──────────────────────────────────────
+      // -- load local config (if provided) --------------------------------------
       ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
       if (localCfg == null) return 1;
 
@@ -322,7 +322,7 @@ public class Main implements Runnable {
   }
 
   /**
-   * Commits new rows for a single chain — the shared body of {@code mchain commit}
+   * Commits new rows for a single chain -- the shared body of {@code mchain commit}
    * and each iteration of {@code mchain commit-all}. {@code localCfg} supplies
    * whatever fields are locally known (access token, sql-config, salts); anything
    * absent is fetched from the server. CLI-flag parameters, when non-null, take
@@ -341,7 +341,7 @@ public class Main implements Runnable {
         return 1;
       }
 
-      // ── network + DB ─────────────────────────────────────────────────────────
+      // -- network + DB ---------------------------------------------------------
       ChainClient client = newClient(effectiveUrl);
 
       ChainInfo info = client.getInfo().orElseThrow(() ->
@@ -421,7 +421,7 @@ public class Main implements Runnable {
           var resp = client.commit(effectiveToken, new CommitRequest(from, hashes));
           long replayed = Math.max(0, Math.min(to, committed) - from + 1);
           long added    = (to - from + 1) - replayed;
-          System.out.println("  Committed rows " + from + "–" + to +
+          System.out.println("  Committed rows " + from + "-" + to +
               "  (chain total: " + resp.rowCount() + ")" +
               describeReplayedAdded(replayed, added));
           from = to + 1;
@@ -452,7 +452,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── commit-all ──────────────────────────────────────────────────────────────
+  // -- commit-all --------------------------------------------------------------
 
   @Command(
       name = "commit-all",
@@ -460,8 +460,8 @@ public class Main implements Runnable {
           "Commit new rows for every chain in a local config file.",
           "",
           """
-          The local config file groups several related chains — e.g. chains backed \
-          by tables in the same database — under a top-level 'chains' object, keyed \
+          The local config file groups several related chains -- e.g. chains backed \
+          by tables in the same database -- under a top-level 'chains' object, keyed \
           by a short local alias, plus shared defaults (jdbc_url, access_token, \
           timezone, default_lag, ...) that apply to any chain that doesn't set its \
           own.""",
@@ -577,7 +577,7 @@ public class Main implements Runnable {
         URI chainUrl = chainCfg.chainUrl().map(URI::create).orElse(null);
         if (chainUrl == null) {
           System.err.println("ERROR: no chain_url resolvable for '" + alias +
-              "' — set it explicitly or add 'base_chain_url' to --local-config");
+              "' -- set it explicitly or add 'base_chain_url' to --local-config");
           failures++;
           continue;
         }
@@ -601,7 +601,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── status ───────────────────────────────────────────────────────────────────
+  // -- status -------------------------------------------------------------------
 
   @Command(
       name = "status",
@@ -609,9 +609,9 @@ public class Main implements Runnable {
           "Print the current committed row count (GET /state, public).",
           "",
           """
-          When a row-count query is available — via --row-count-query, a \
+          When a row-count query is available -- via --row-count-query, a \
           'row_count_query' field in --local-config, or the server's sql-config \
-          (fetched with a bearer token when not available locally) — also connects \
+          (fetched with a bearer token when not available locally) -- also connects \
           to the local database to report the source ledger's row count and how \
           many rows are available to commit, factoring in 'default_lag' when configured.""",
           "",
@@ -714,7 +714,7 @@ public class Main implements Runnable {
         URI effectiveUrl = effectiveChainUrl(opts, localCfg);
         if (effectiveUrl == null) {
           System.err.println("ERROR: no chain_url resolvable for '" + alias +
-              "' — set it explicitly or add 'base_chain_url' to --local-config");
+              "' -- set it explicitly or add 'base_chain_url' to --local-config");
           failures++;
           continue;
         }
@@ -742,7 +742,7 @@ public class Main implements Runnable {
       System.out.println(effectiveUrl + "  Committed rows: " + committed);
     }
 
-    // ── source row count / available-to-commit (best effort) ────────────────
+    // -- source row count / available-to-commit (best effort) ----------------
     String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
 
     String rowCountQuery = rowCountQueryOverride != null
@@ -795,7 +795,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── info ─────────────────────────────────────────────────────────────────────
+  // -- info ---------------------------------------------------------------------
 
   @Command(
       name = "info",
@@ -837,7 +837,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── columns ──────────────────────────────────────────────────────────────────
+  // -- columns ------------------------------------------------------------------
 
   @Command(
       name = "columns",
@@ -850,7 +850,7 @@ public class Main implements Runnable {
           "",
           """
           With any of those options, merges them into the chain's current column \
-          list — existing entries not mentioned are left unchanged — then PUTs the \
+          list -- existing entries not mentioned are left unchanged -- then PUTs the \
           full merged list back (requires a token)."""
       })
   static class ColumnsCommand implements Callable<Integer> {
@@ -956,7 +956,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── rows ─────────────────────────────────────────────────────────────────────
+  // -- rows ---------------------------------------------------------------------
 
   @Command(
       name = "rows",
@@ -973,7 +973,7 @@ public class Main implements Runnable {
           When --local-config already supplies sql-config and a resolvable salt \
           story (unsalted, or salted with 'salted' + 'salts' both present \
           locally), falls back to that local-only config if the chain isn't \
-          (yet) found at the server — handy for testing queries against a chain \
+          (yet) found at the server -- handy for testing queries against a chain \
           that hasn't been registered yet.""",
           "",
           "Output is JSON (default) or pretty-printed one-cell-per-line (--pretty)."
@@ -1048,7 +1048,7 @@ public class Main implements Runnable {
 
     @Override
     public Integer call() throws Exception {
-      // ── option validation ──────────────────────────────────────────────────
+      // -- option validation --------------------------------------------------
       int modes = (rowNo != null ? 1 : 0) + (whereClause != null ? 1 : 0) + (count ? 1 : 0);
       if (modes == 0) {
         System.err.println("ERROR: one of --row, --where, or --count is required");
@@ -1063,7 +1063,7 @@ public class Main implements Runnable {
         return 1;
       }
 
-      // ── load local config ──────────────────────────────────────────────────
+      // -- load local config --------------------------------------------------
       ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
       if (localCfg == null) return 1;
 
@@ -1072,7 +1072,7 @@ public class Main implements Runnable {
       // CLI chain-url wins; fall back to local config
       URI effectiveUrl = effectiveChainUrl(opts, localCfg);
 
-      // ── chain info, salt, sql-config (public/local-fallback, then salt+sql) ──
+      // -- chain info, salt, sql-config (public/local-fallback, then salt+sql) --
       ChainClient client = effectiveUrl != null ? newClient(effectiveUrl) : null;
       ResolvedQueryConfig rqc;
       try {
@@ -1084,7 +1084,7 @@ public class Main implements Runnable {
       TableSalt  salt       = rqc.salt();
       SqlConfig  sqlCfg     = rqc.sqlConfig();
 
-      // ── timezone ───────────────────────────────────────────────────────────
+      // -- timezone -----------------------------------------------------------
       String effectiveTz = sqlCfg.timezone().orElse("UTC");
       try {
         TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(effectiveTz)));
@@ -1098,7 +1098,7 @@ public class Main implements Runnable {
 
       Properties props = cliJdbcProps(jdbcUser, jdbcPass);
 
-      // ── count shortcut (no chain-info or salt needed) ──────────────────────
+      // -- count shortcut (no chain-info or salt needed) ----------------------
       if (count) {
         try (var conn = effectiveCfg.openConnection(props.isEmpty() ? null : props);
              var stmt = conn.createStatement();
@@ -1108,7 +1108,7 @@ public class Main implements Runnable {
         return 0;
       }
 
-      // ── query ──────────────────────────────────────────────────────────────
+      // -- query --------------------------------------------------------------
       List<SourceRow> rows = List.of();
       List<String> jdbcLabels = List.of();
       try (Connection conn = effectiveCfg.openConnection(props.isEmpty() ? null : props)) {
@@ -1147,7 +1147,7 @@ public class Main implements Runnable {
     }
 
     /**
-     * Resolves per-index display labels, sized to {@code jdbcLabels} — captured
+     * Resolves per-index display labels, sized to {@code jdbcLabels} -- captured
      * from the same {@code ResultSetMetaData} that produced the row's cells, so
      * it always matches the row's actual cell count (unlike {@code serverColumns},
      * a disconnected, possibly-stale, possibly-sparse config). A server-configured
@@ -1176,7 +1176,7 @@ public class Main implements Runnable {
           System.out.println("  (null row)");
         } else {
           // Pre-format every cell first so the (TYPE) column can be aligned
-          // to the row's longest value instead of a fixed width — a value
+          // to the row's longest value instead of a fixed width -- a value
           // longer than that fixed width (e.g. a DATE with its timezone
           // suffix) would otherwise push just that row's (TYPE) marker out
           // of line with the rest.
@@ -1225,7 +1225,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── config ───────────────────────────────────────────────────────────────────
+  // -- config -------------------------------------------------------------------
 
   @Command(
       name = "config",
@@ -1261,7 +1261,7 @@ public class Main implements Runnable {
             the file incrementally.  --chain-url, --by-no-query, --row-count-query, \
             --salt-seed, and --salted configure one specific chain and require \
             --chain <alias>; the rest (--jdbc-url, --token, --timezone, ...) may be \
-            set with or without --chain — without it, they become shared defaults \
+            set with or without --chain -- without it, they become shared defaults \
             any chain not overriding them falls back to.  A typical \
             dry-run setup for one chain:""",
             "",
@@ -1396,7 +1396,7 @@ public class Main implements Runnable {
         if (baseChainUrl != null) jObj.put(BASE_CHAIN_URL_KEY, baseChainUrl);
 
         // Everything else applies either to the file root (shared defaults),
-        // or — when --chain is given — to the named entry under the
+        // or -- when --chain is given -- to the named entry under the
         // top-level 'chains' object.
         JSONObject chainsObj = null;
         JSONObject target = jObj;
@@ -1461,7 +1461,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── receipt ──────────────────────────────────────────────────────────────────
+  // -- receipt ------------------------------------------------------------------
 
   @Command(
       name = "receipt",
@@ -1489,18 +1489,18 @@ public class Main implements Runnable {
             "",
             """
             Walks the named template's chain selectors in order: the first binds \
-            <input>... directly (its 'where' clause's '?'s, in order, or — if it has \
-            no 'where' — the single <input> as a row number); every later selector \
+            <input>... directly (its 'where' clause's '?'s, in order, or -- if it has \
+            no 'where' -- the single <input> as a row number); every later selector \
             derives its own bound values from a row already resolved for an earlier \
             chain, via ROW_NO(:alias) or :alias.column in its 'args'. The first chain \
             must resolve to exactly one row; every other chain may resolve to any \
-            number (including zero) without that being an error — see 'chain' field \
+            number (including zero) without that being an error -- see 'chain' field \
             in a RowSelector's javadoc for the full binding rules.""",
             "",
             "Every chain touched needs a complete local sql-config and salt story " +
             "(server-fetched sql-config/salts also work, same as 'mchain rows').",
             "",
-            "Output is a draft receipt (no commitment proof yet) — see 'mchain receipt anchor'."
+            "Output is a draft receipt (no commitment proof yet) -- see 'mchain receipt anchor'."
         })
     static class GenerateCommand implements Callable<Integer> {
 
@@ -1596,7 +1596,7 @@ public class Main implements Runnable {
             For every entry not already anchored, fetches GET /state for exactly \
             its row numbers plus the chain's latest row, and attaches the result as \
             that entry's 'state'. An entry whose chain has no committed rows yet (or \
-            can't be reached) is left as a draft, with a warning — anchoring is \
+            can't be reached) is left as a draft, with a warning -- anchoring is \
             best-effort per chain, not all-or-nothing."""
         })
     static class AnchorCommand implements Callable<Integer> {
@@ -1669,7 +1669,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── redact ───────────────────────────────────────────────────────────────────
+  // -- redact -------------------------------------------------------------------
 
   @Command(
       name = "redact",
@@ -1679,7 +1679,7 @@ public class Main implements Runnable {
           """
           Redacting a cell discards its revealed value while leaving the \
           row's overall hash unchanged, so a redacted receipt remains fully \
-          verifiable against its (unaltered) commitment path — see the \
+          verifiable against its (unaltered) commitment path -- see the \
           project README's 'Downstream redactable' section. Safe to apply \
           to an already-anchored receipt; already-redacted cells are left \
           as-is.""",
@@ -1823,7 +1823,7 @@ public class Main implements Runnable {
   }
 
 
-  // ── helpers ──────────────────────────────────────────────────────────────────
+  // -- helpers ------------------------------------------------------------------
 
   /**
    * Writes {@code jObj} as JSON to {@code outputFile}, or to stdout when
@@ -1845,13 +1845,13 @@ public class Main implements Runnable {
    * Loads {@code localConfigFile} (if given) as a {@link LocalConfig} and
    * resolves the single chain to operate on: {@code chainAlias} when given,
    * else the file's sole chain when it has exactly one. Used by every
-   * command that operates on one chain at a time — {@code commit-all} manages
+   * command that operates on one chain at a time -- {@code commit-all} manages
    * its own iteration over every chain in the file instead.
    *
    * <p>Returns {@link ChainConfig#EMPTY} when {@code localConfigFile} is
    * {@code null} ({@code chainAlias} must then also be null). On any
-   * failure — unreadable file, unknown alias, or an empty/ambiguous set of
-   * chains when no alias was given — prints an {@code ERROR:} line and
+   * failure -- unreadable file, unknown alias, or an empty/ambiguous set of
+   * chains when no alias was given -- prints an {@code ERROR:} line and
    * returns {@code null}.</p>
    */
   private static ChainConfig resolveLocalConfig(File localConfigFile, String chainAlias) {
@@ -1914,7 +1914,7 @@ public class Main implements Runnable {
 
   /**
    * Resolves the {@link TableSalt} and {@link SqlConfig} needed
-   * to open a local ledger for one chain — the same local-config-first /
+   * to open a local ledger for one chain -- the same local-config-first /
    * server-fallback logic {@code mchain rows} uses (see that command's
    * description), factored out for reuse by the receipt-template resolver,
    * which repeats this once per chain in a template.
@@ -1931,10 +1931,10 @@ public class Main implements Runnable {
       ChainConfig localCfg, URI effectiveUrl, ChainClient client, String effectiveToken)
       throws IOException, InterruptedException {
 
-    // ── chain info (public) ──────────────────────────────────────────────────
-    // We need ChainInfo to know whether the chain is salted.  We can skip — or
-    // gracefully survive a failed — server call when the local config has
-    // sql-config and either: (a) no salt epochs (→ unsalted), or (b) salt
+    // -- chain info (public) --------------------------------------------------
+    // We need ChainInfo to know whether the chain is salted.  We can skip -- or
+    // gracefully survive a failed -- server call when the local config has
+    // sql-config and either: (a) no salt epochs (-> unsalted), or (b) salt
     // epochs plus an explicit 'salted' setting.  The latter lets queries be
     // tested against a chain that hasn't been registered on the server yet.
     Optional<ChainInfo> maybeInfo = client != null ? client.getInfo() : Optional.empty();
@@ -1960,7 +1960,7 @@ public class Main implements Runnable {
           "a resolvable chain_url (or --base-chain-url) in --local-config");
     }
 
-    // ── salt ──────────────────────────────────────────────────────────────────
+    // -- salt ------------------------------------------------------------------
     TableSalt salt = null;
     if (info.salted()) {
       var localSalt = localCfg.tableSalt();
@@ -1977,7 +1977,7 @@ public class Main implements Runnable {
       }
     }
 
-    // ── sql-config ────────────────────────────────────────────────────────────
+    // -- sql-config ------------------------------------------------------------
     SqlConfig sqlCfg;
     if (localCfg.sqlConfig().isPresent()) {
       sqlCfg = localCfg.sqlConfig().get();
@@ -2011,7 +2011,7 @@ public class Main implements Runnable {
   }
 
   /**
-   * Resolves the effective {@link DbConfig}, layering — lowest to highest precedence —
+   * Resolves the effective {@link DbConfig}, layering -- lowest to highest precedence --
    * {@code primary} (typically the server's sql-config, when fetched), then
    * {@code localCfg}'s own JDBC details (from its {@code sqlConfig} or loose
    * {@code jdbc_url}/{@code jdbc_driver_jar} fields), then the CLI override flags.

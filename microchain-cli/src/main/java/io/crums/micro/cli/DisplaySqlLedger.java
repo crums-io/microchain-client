@@ -21,8 +21,8 @@ import io.crums.util.TaskStack;
  * {@link LabeledSqlLedger} subclass that can execute ad-hoc WHERE-clause queries
  * against the source database and return the matching rows as {@link SourceRow}s.
  *
- * <p>Transforms the {@code byNoQuery} — which has the form
- * {@code SELECT <cols> FROM <table> WHERE <pk> = ?} — into a display base query
+ * <p>Transforms the {@code byNoQuery} -- which has the form
+ * {@code SELECT <cols> FROM <table> WHERE <pk> = ?} -- into a display base query
  * {@code SELECT <pk>, <cols> FROM <table>} so that any user-supplied WHERE
  * constraint can be appended.  The pk column becomes column 1 in the result set,
  * providing the skipledger row number needed to build each {@link SourceRow}.</p>
@@ -123,7 +123,7 @@ public class DisplaySqlLedger extends LabeledSqlLedger {
 
   /**
    * Executes a parameterised WHERE-clause query and returns matching source
-   * rows — the same mechanism {@link #query(String)} uses, but binding
+   * rows -- the same mechanism {@link #query(String)} uses, but binding
    * {@code args} to the clause's {@code ?} placeholders via a real
    * {@link PreparedStatement} instead of requiring literal values in
    * {@code sqlConstraint} itself. Used by the receipt-template DSL, where

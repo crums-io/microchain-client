@@ -18,7 +18,7 @@ import io.crums.util.json.simple.JSONObject;
  * and optional description, keyed by the column's 0-based position in
  * {@code SourceRow.cells()}.
  *
- * <p>Public, non-sensitive information — set by the chain owner via
+ * <p>Public, non-sensitive information -- set by the chain owner via
  * {@code PUT /{user}/{chain}/columns} and readable by anyone via
  * {@code GET /{user}/{chain}/columns}, since it's needed to render receipts
  * (e.g. {@code /verify}, Qute templates) for recipients who hold a source

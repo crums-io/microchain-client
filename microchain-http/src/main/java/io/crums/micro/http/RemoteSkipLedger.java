@@ -40,7 +40,7 @@ public class RemoteSkipLedger extends SkipLedger {
   @Override public String hashAlgo()  { return io.crums.sldg.SldgConstants.DIGEST.hashAlgo(); }
   @Override public int    hashWidth() { return io.crums.sldg.SldgConstants.DIGEST.hashWidth(); }
 
-  // SkipLedger implementation — to be filled in
+  // SkipLedger implementation -- to be filled in
 
   @Override public long size() { throw new UnsupportedOperationException("TODO"); }
   @Override public io.crums.sldg.Row getRow(long rowNumber) { throw new UnsupportedOperationException("TODO"); }
