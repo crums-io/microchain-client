@@ -38,7 +38,7 @@ import io.crums.util.json.simple.JSONObject;
  * @see SourceReceipt for the draft/anchored distinction and the
  *      hash-verification rules enforced at construction
  */
-public class ChainReceipt extends SourceReceipt {
+public final class ChainReceipt extends SourceReceipt {
 
   public static final Parser PARSER = new Parser();
 
@@ -64,6 +64,11 @@ public class ChainReceipt extends SourceReceipt {
   public ChainReceipt(String chainUri, List<SourceRow> rows, Optional<PathPack> state) {
     this(URI.create(chainUri), rows, state);
   }
+
+
+
+
+
 
   /** This chain's identifier. Need not be dereferenceable -- see {@link #chainUrl()}. */
   public URI chainUri() {
@@ -91,6 +96,22 @@ public class ChainReceipt extends SourceReceipt {
   /** Returns a copy with {@code path} attached as this entry's {@link #state()}. */
   public ChainReceipt withState(Path path) {
     return new ChainReceipt(chainUri, rows(), Optional.of(PathPack.forPath(path)));
+  }
+
+  @Override
+  public final boolean equals(Object o) {
+    if (o == this)
+      return true;
+    if (o instanceof ChainReceipt cr)
+      return Objects.equals(chainUri, cr.chainUri) && equalMembers(cr);
+    return false;
+  }
+
+
+  @Override
+  public int hashCode() {
+    int hashCode = super.hashCode();
+    return chainUri == null ? hashCode : chainUri.hashCode() + 31 * hashCode;
   }
 
 

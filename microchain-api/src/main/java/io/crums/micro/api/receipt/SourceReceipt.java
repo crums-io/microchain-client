@@ -129,6 +129,33 @@ public class SourceReceipt {
     return new SourceReceipt(rows, Optional.of(PathPack.forPath(path)));
   }
 
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (o == null || SourceReceipt.class != o.getClass())
+      return false;
+    SourceReceipt other = (SourceReceipt) o;
+    return rows.equals(other.rows) && statePath().equals(other.statePath());
+  }
+
+
+  protected boolean equalMembers(SourceReceipt other) {
+    return rows.equals(other.rows) && statePath().equals(other.statePath());
+  }
+
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(rows, statePath());
+  }
+
+  /** {@link #state()}, unwrapped to the {@link Path} it packs -- {@link PathPack} itself has
+   *  no {@code equals}/{@code hashCode} of its own, {@link Path} does. */
+  private Optional<Path> statePath() {
+    return state.map(PathPack::path);
+  }
+
 
   // ── JSON parser ───────────────────────────────────────────────────────────
 

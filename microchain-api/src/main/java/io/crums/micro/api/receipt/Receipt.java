@@ -51,6 +51,23 @@ public class Receipt {
     return chains;
   }
 
+  /** Per {@link List#equals(Object)}: order-sensitive -- two receipts holding the same
+   *  {@link ChainReceipt} entries in a different order are not equal. */
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (!(o instanceof Receipt other))
+      return false;
+    return chains.equals(other.chains);
+  }
+
+  /** Consistent with {@link #equals(Object)} -- delegates to {@link List#hashCode()}. */
+  @Override
+  public int hashCode() {
+    return chains.hashCode();
+  }
+
 
   // ── JSON parser ───────────────────────────────────────────────────────────
 

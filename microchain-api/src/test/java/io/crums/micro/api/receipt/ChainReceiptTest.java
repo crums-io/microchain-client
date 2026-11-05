@@ -22,12 +22,15 @@ import io.crums.sldg.SkipLedgers;
 import io.crums.sldg.salt.TableSalt;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.SourceRowBuilder;
+import io.crums.util.json.simple.JSONObject;
 
 /**
  * Tests {@link ChainReceipt}'s constructor-time validation (sorted/no-dup
  * rows, and — when {@code state} is present — that each row's hash agrees
  * with the attached commitment path) against a <em>real</em> in-memory
- * skipledger, rather than mocks.
+ * skipledger, rather than mocks; also {@link ChainReceipt}/{@link Receipt}/
+ * {@link SourceReceipt}'s JSON round-trip and {@code equals}/{@code
+ * hashCode} behavior.
  *
  * <h2>Fixture</h2>
  * <p>For each mock chain: 10 source rows numbered 100-109 are built via
@@ -98,6 +101,26 @@ public class ChainReceiptTest {
   /** Convenience: builds a fresh ledger for exactly {@code realRows}, then packs all of them. */
   private static PathPack anchorPack(List<SourceRow> realRows) {
     return anchorPack(buildLedger(realRows), realRows);
+  }
+
+  /** Serializes, re-parses, and asserts the result is {@code equals} to (and hashes the
+   *  same as) the original -- the whole point being 2 separately-constructed instances,
+   *  not the same object compared to itself. */
+  private void assertRoundtrip(ChainReceipt cr) {
+    JSONObject jObj = ChainReceipt.PARSER.toJsonObject(cr);
+    ChainReceipt cr2 = ChainReceipt.PARSER.toEntity(jObj);
+    assertNotSame(cr, cr2);
+    assertEquals(cr, cr2);
+    assertEquals(cr.hashCode(), cr2.hashCode());
+  }
+
+  /** @see #assertRoundtrip(ChainReceipt) */
+  private void assertRoundtrip(Receipt receipt) {
+    JSONObject jObj = Receipt.PARSER.toJsonObject(receipt);
+    Receipt receipt2 = Receipt.PARSER.toEntity(jObj);
+    assertNotSame(receipt, receipt2);
+    assertEquals(receipt, receipt2);
+    assertEquals(receipt.hashCode(), receipt2.hashCode());
   }
 
 
@@ -259,5 +282,72 @@ public class ChainReceiptTest {
     Receipt receipt = new Receipt(List.of(orders, customers));
     assertTrue(receipt.isFullyAnchored());
     assertEquals(2, receipt.chains().size());
+  }
+
+
+  // ── json roundtrip / equals/hashCode ─────────────────────────────────────
+
+  @Test
+  public void testRoundtrip_draft() {
+    List<SourceRow> rows = buildRealRows(null);
+    assertRoundtrip(new ChainReceipt(CHAIN_URL, rows, Optional.empty()));
+  }
+
+  @Test
+  public void testRoundtrip_anchored_noSalt() {
+    List<SourceRow> rows = buildRealRows(null);
+    PathPack pack = anchorPack(rows);
+    assertRoundtrip(new ChainReceipt(CHAIN_URL, rows, Optional.of(pack)));
+  }
+
+  @Test
+  public void testRoundtrip_anchored_salted() {
+    TableSalt salt = new TableSalt(seed(0xAB));
+    List<SourceRow> rows = buildRealRows(salt);
+    PathPack pack = anchorPack(rows);
+    assertRoundtrip(new ChainReceipt(CHAIN_URL, rows, Optional.of(pack)));
+  }
+
+  @Test
+  public void testRoundtrip_multiChainReceipt() {
+    List<SourceRow> ordersRows = buildRealRows(null);
+    ChainReceipt orders = new ChainReceipt(
+        "https://micro.crums.io/bikeshop/orders", ordersRows,
+        Optional.of(anchorPack(ordersRows)));
+
+    TableSalt salt = new TableSalt(seed(0x42));
+    List<SourceRow> customersRows = buildRealRows(salt);
+    ChainReceipt customers = new ChainReceipt(
+        "https://micro.crums.io/bikeshop/customers", customersRows,
+        Optional.of(anchorPack(customersRows)));
+
+    assertRoundtrip(new Receipt(List.of(orders, customers)));
+  }
+
+  @Test
+  public void testReorderedChains_receiptNotEqual() {
+    // Per Receipt#equals's own javadoc: order-sensitive, leaning on List's
+    // own equals contract -- the same two entries in a different order are
+    // a different value, even though logically the same chains.
+    ChainReceipt orders = new ChainReceipt(
+        "https://micro.crums.io/bikeshop/orders", buildRealRows(null), Optional.empty());
+    ChainReceipt customers = new ChainReceipt(
+        "https://micro.crums.io/bikeshop/customers", buildRealRows(null), Optional.empty());
+
+    Receipt a = new Receipt(List.of(orders, customers));
+    Receipt b = new Receipt(List.of(customers, orders));
+    assertNotEquals(a, b);
+  }
+
+  @Test
+  public void testSourceReceiptNeverEqualsChainReceipt() {
+    // Regression guard for the exact-class-literal check SourceReceipt's
+    // equals uses: a bare SourceReceipt and a ChainReceipt built from the
+    // identical rows/state must never compare equal, in either direction.
+    List<SourceRow> rows = buildRealRows(null);
+    SourceReceipt sr = new SourceReceipt(rows, Optional.empty());
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, rows, Optional.empty());
+    assertNotEquals(sr, cr);
+    assertNotEquals(cr, sr);
   }
 }
