@@ -9,7 +9,7 @@ package io.crums.micro.api.render;
  * deadline. Not a template or data fault; whoever interrupted the thread
  * decided to give up on this render for their own reasons.
  */
-public class RenderInterruptedException extends RuntimeException {
+public class RenderInterruptedException extends RenderException {
 
   public RenderInterruptedException() {
     super("render aborted: thread interrupted");

@@ -12,7 +12,7 @@ package io.crums.micro.api.render;
  * server exposing this as a REST endpoint, not 500): the template and data
  * both parsed/validated fine, this input is just too large to allow.
  */
-public class RenderAccessBudgetExceededException extends RuntimeException {
+public class RenderAccessBudgetExceededException extends RenderException {
 
   public RenderAccessBudgetExceededException(long maxAccesses) {
     super("render touched more than %,d cells, exceeding the access budget".formatted(maxAccesses));

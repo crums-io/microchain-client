@@ -10,7 +10,7 @@ package io.crums.micro.api.render;
  * submitted for this template, or the receipt is missing a chain/row the
  * template expects).
  */
-public class TemplateDataMismatchException extends RuntimeException {
+public class TemplateDataMismatchException extends RenderException {
 
   public TemplateDataMismatchException(String templateName, long version, Throwable cause) {
     super("template '%s' v%d could not be rendered against the submitted receipt: %s"

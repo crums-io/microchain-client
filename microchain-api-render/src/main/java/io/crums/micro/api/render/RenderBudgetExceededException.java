@@ -12,7 +12,7 @@ package io.crums.micro.api.render;
  * rendering it against this particular input is just too expensive to
  * allow.
  */
-public class RenderBudgetExceededException extends RuntimeException {
+public class RenderBudgetExceededException extends RenderException {
 
   public RenderBudgetExceededException(int maxChars) {
     super("render output exceeded the %,d-character budget".formatted(maxChars));

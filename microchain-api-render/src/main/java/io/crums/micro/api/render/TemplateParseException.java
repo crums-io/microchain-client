@@ -12,7 +12,7 @@ package io.crums.micro.api.render;
  * something about the stored content changed independent of what passed
  * at publish time, not that publishing skipped validation.
  */
-public class TemplateParseException extends RuntimeException {
+public class TemplateParseException extends RenderException {
 
   public TemplateParseException(String templateName, long version, Throwable cause) {
     super("failed to parse template '%s' v%d: %s"

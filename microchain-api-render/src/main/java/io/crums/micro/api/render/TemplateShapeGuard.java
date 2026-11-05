@@ -47,19 +47,19 @@ public final class TemplateShapeGuard {
   private TemplateShapeGuard() {
   }
 
-  /** @throws IllegalArgumentException if {@code content}'s shape exceeds the default limits */
-  public static void validate(String content) {
-    validate(content, DEFAULT_MAX_RANGE_SPAN, DEFAULT_MAX_LOOP_NESTING);
+  /** @throws IllegalArgumentException if {@code templateContent}'s shape exceeds the default limits */
+  public static void validate(String templateContent) {
+    validate(templateContent, DEFAULT_MAX_RANGE_SPAN, DEFAULT_MAX_LOOP_NESTING);
   }
 
-  /** @throws IllegalArgumentException if {@code content}'s shape exceeds the given limits */
-  public static void validate(String content, long maxRangeSpan, int maxLoopNesting) {
-    checkLiteralRanges(content, maxRangeSpan);
-    checkLoopNesting(content, maxLoopNesting);
+  /** @throws IllegalArgumentException if {@code templateContent}'s shape exceeds the given limits */
+  public static void validate(String templateContent, long maxRangeSpan, int maxLoopNesting) {
+    checkLiteralRanges(templateContent, maxRangeSpan);
+    checkLoopNesting(templateContent, maxLoopNesting);
   }
 
-  private static void checkLiteralRanges(String content, long maxRangeSpan) {
-    Matcher m = LITERAL_RANGE.matcher(content);
+  private static void checkLiteralRanges(String templateContent, long maxRangeSpan) {
+    Matcher m = LITERAL_RANGE.matcher(templateContent);
     while (m.find()) {
       long a, b;
       try {
@@ -77,14 +77,14 @@ public final class TemplateShapeGuard {
     }
   }
 
-  private static void checkLoopNesting(String content, int maxLoopNesting) {
+  private static void checkLoopNesting(String templateContent, int maxLoopNesting) {
     record Event(int pos, int delta) { }
 
     List<Event> events = new ArrayList<>();
-    Matcher open = LOOP_OPEN.matcher(content);
+    Matcher open = LOOP_OPEN.matcher(templateContent);
     while (open.find())
       events.add(new Event(open.start(), 1));
-    Matcher close = LOOP_CLOSE.matcher(content);
+    Matcher close = LOOP_CLOSE.matcher(templateContent);
     while (close.find())
       events.add(new Event(close.start(), -1));
     events.sort(Comparator.comparingInt(Event::pos));

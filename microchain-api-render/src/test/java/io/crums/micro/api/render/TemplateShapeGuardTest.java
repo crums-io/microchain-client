@@ -44,10 +44,10 @@ public class TemplateShapeGuardTest {
 
   @Test
   public void testExcessiveLoopNesting_rejected() {
-    String content = "{#for a in rows}{#for b in rows}{#for c in rows}" +
+    String templateContent = "{#for a in rows}{#for b in rows}{#for c in rows}" +
         "{#for d in rows}{#for e in rows}{#for f in rows}{#for g in rows}" +
         "{/for}{/for}{/for}{/for}{/for}{/for}{/for}";
-    assertThrows(IllegalArgumentException.class, () -> TemplateShapeGuard.validate(content));
+    assertThrows(IllegalArgumentException.class, () -> TemplateShapeGuard.validate(templateContent));
   }
 
   @Test

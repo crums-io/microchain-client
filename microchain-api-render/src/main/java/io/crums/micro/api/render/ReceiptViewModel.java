@@ -36,10 +36,11 @@ public final class ReceiptViewModel {
    */
   public static final long DEFAULT_MAX_ACCESSES = 2_000_000L; // see checkBudget()
 
-  private final Receipt receipt;
+  private final AtomicLong accessCount = new AtomicLong();
   private final ReceiptRenderSettings settings;
   private final long maxAccesses;
-  private final AtomicLong accessCount = new AtomicLong();
+  private final Receipt receipt;
+  private final Receipt unmeteredReceipt;
 
   public ReceiptViewModel(Receipt receipt) {
     this(receipt, new ReceiptRenderSettings());
@@ -53,6 +54,7 @@ public final class ReceiptViewModel {
     this.settings = Objects.requireNonNull(settings, "settings");
     this.maxAccesses = maxAccesses;
     this.receipt = decorate(receipt);
+    this.unmeteredReceipt = receipt;
   }
 
 
@@ -61,6 +63,14 @@ public final class ReceiptViewModel {
    */
   public Receipt receipt() {
     return receipt;
+  }
+
+  /**
+   * For internal use. For e.g., generating json, or even evaluating
+   * {@code Receipt.equals(Object)}.
+   */
+  Receipt unmeteredReceipt() {
+    return unmeteredReceipt;
   }
 
   /**
