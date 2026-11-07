@@ -19,7 +19,7 @@
     <crums.util>1.0.5-SNAPSHOT</crums.util>
     <skipledger.version>0.7.0-SNAPSHOT</skipledger.version>
     <picocli.version>4.7.5</picocli.version>
-    <qute.version>3.17.6</qute.version>
+    <qute.version>3.40.1</qute.version>
     <openhtmltopdf.version>1.1.65</openhtmltopdf.version>
   </properties>
   <licenses>
