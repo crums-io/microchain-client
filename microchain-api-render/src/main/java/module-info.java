@@ -7,6 +7,5 @@ module io.crums.micro.api.render {
   requires org.apache.pdfbox;
 
   exports io.crums.micro.api.render;
-  exports io.crums.micro.api.render.engine;
 
 }

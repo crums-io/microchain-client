@@ -40,21 +40,40 @@ public final class ReceiptViewModel {
   private final ReceiptRenderSettings settings;
   private final long maxAccesses;
   private final Receipt receipt;
-  private final Receipt unmeteredReceipt;
 
-  public ReceiptViewModel(Receipt receipt) {
+  // Package-private: nobody outside io.crums.micro.api.render needs to
+  // construct one of these directly -- RenderingBuilder is the only real
+  // caller, Qute scripts only ever see an already-built instance (and
+  // couldn't call a constructor through reflection-based resolution
+  // anyway). The class itself stays public only because QutePreprocesser
+  // (a different package) names it in a public method signature
+  // (newEngine(ReceiptViewModel)).
+
+  ReceiptViewModel(Receipt receipt) {
     this(receipt, new ReceiptRenderSettings());
   }
 
-  public ReceiptViewModel(Receipt receipt, ReceiptRenderSettings settings) {
+  ReceiptViewModel(Receipt receipt, ReceiptRenderSettings settings) {
     this(receipt, settings, DEFAULT_MAX_ACCESSES);
   }
 
-  public ReceiptViewModel(Receipt receipt, ReceiptRenderSettings settings, long maxAccesses) {
+  ReceiptViewModel(Receipt receipt, ReceiptRenderSettings settings, long maxAccesses) {
+    this(receipt, settings, maxAccesses, true);
+  }
+
+  /**
+   * @param guarded if {@code false}, {@link #decorate(ChainReceipt, boolean)} skips
+   *        every {@link #checkBudget()} call (and the listener-carrying
+   *        {@link SourceRowView} wrapping that drives it) entirely --
+   *        {@code maxAccesses} is then irrelevant, and nothing here stops
+   *        a runaway render on its own. Only meant for content already
+   *        known to be safe (an already-published, already-test-rendered
+   *        template) -- see {@code QutePreprocesser.unguardedEngine}.
+   */
+  ReceiptViewModel(Receipt receipt, ReceiptRenderSettings settings, long maxAccesses, boolean guarded) {
     this.settings = Objects.requireNonNull(settings, "settings");
     this.maxAccesses = maxAccesses;
-    this.receipt = decorate(receipt);
-    this.unmeteredReceipt = receipt;
+    this.receipt = decorate(receipt, guarded);
   }
 
 
@@ -63,14 +82,6 @@ public final class ReceiptViewModel {
    */
   public Receipt receipt() {
     return receipt;
-  }
-
-  /**
-   * For internal use. For e.g., generating json, or even evaluating
-   * {@code Receipt.equals(Object)}.
-   */
-  Receipt unmeteredReceipt() {
-    return unmeteredReceipt;
   }
 
   /**
@@ -97,10 +108,10 @@ public final class ReceiptViewModel {
 
   /**
    * Checks the current thread's interrupt status, plus the per-instance access-count budget:
-   * every call counts as one cell touched, and the {@code maxAccesses}-th
+   * every call counts as one access, and the {@code maxAccesses}-th
    * one throws.
    *
-   * <p>Wired into {@link #decorate(ChainReceipt)} two ways, with different
+   * <p>Wired into {@link #decorate(ChainReceipt, boolean)} two ways, with different
    * reach: the outer row-mapper call below only ever fires once per row,
    * during this constructor's own call into {@code ChainReceipt}'s
    * row-ordering/hash-vs-state validation ({@code SourceReceipt}'s
@@ -113,8 +124,17 @@ public final class ReceiptViewModel {
    * cells()} call -- including the ones Qute itself makes while walking a
    * template's {@code {#for}} loop -- builds a fresh lazy list and
    * re-checks on every element access, for the life of the row.</p>
+   *
+   * <p>Also called once per rendered template node, from the trace
+   * listener {@code QutePreprocesser.newEngine(ReceiptViewModel)} wires
+   * into the Qute {@code Engine} it builds -- that hook reaches every
+   * loop iteration, including one over a literal range whose body never
+   * touches a cell, which the {@code SourceRowView} hook above cannot see.
+   * Public (not just package-visible) because that caller lives in a
+   * different package ({@code .engine}); harmless to call from anywhere
+   * else too, since it has no effect beyond this instance's own budget.</p>
    */
-  private void checkBudget() {
+  public void checkBudget() {
     // support interrupt from managed thread pools
     if (Thread.currentThread().isInterrupted())
       throw new RenderInterruptedException();
@@ -122,18 +142,23 @@ public final class ReceiptViewModel {
       throw new RenderAccessBudgetExceededException(maxAccesses);
   }
 
-  private ChainReceipt decorate(ChainReceipt cr) {
+  private ChainReceipt decorate(ChainReceipt cr, boolean guarded) {
     List<SourceRow> srcRows = cr.rows();
     List<SourceRow> view = Lists.map(srcRows, row -> {
-      checkBudget();
-      return SourceRowView.map(row, this::checkBudget);
+      if (guarded) {
+        checkBudget();
+        return SourceRowView.map(row, this::checkBudget);
+      }
+      // Still wrapped (Qute's reflection resolver needs a concrete class,
+      // not the abstract SourceRow/Cell), just with no listener attached.
+      return SourceRowView.map(row);
     });
     return new ChainReceipt(cr.chainUri(), view, cr.state());
   }
 
-  private Receipt decorate(Receipt receipt) {
+  private Receipt decorate(Receipt receipt, boolean guarded) {
     List<ChainReceipt> crs =
-        receipt.chains().stream().map(this::decorate).toList();
+        receipt.chains().stream().map(cr -> decorate(cr, guarded)).toList();
     return new Receipt(crs);
   }
 

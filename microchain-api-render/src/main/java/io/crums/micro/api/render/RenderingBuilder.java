@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import io.crums.micro.api.receipt.Receipt;
 import io.crums.micro.api.render.engine.CappedRenderer;
 import io.crums.micro.api.render.engine.QutePreprocesser;
 
@@ -23,17 +24,27 @@ import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import org.apache.pdfbox.pdmodel.PDDocument;
 
 /**
- * Builds a complete HTML or PDF rendering of a {@link ReceiptViewModel}
- * against a Qute template, entirely within this module -- the one thing a
- * caller (server or, eventually, a plain-Java client with no server at
- * all) actually needs to drive end to end. Composes the pieces the rest of
- * this package provides: {@link QutePreprocesser}/{@link CappedRenderer}
- * for the actual Qute parse and render, then {@link ReceiptHtmlCodec}/
- * {@link ReceiptPdfCodec} to annotate the result with the receipt's own
- * backing data and any reference tags the caller supplies.
+ * Builds a complete HTML or PDF rendering of a {@link Receipt} against a
+ * Qute template, entirely within this module -- the one thing a caller
+ * (server or, eventually, a plain-Java client with no server at all)
+ * actually needs to drive end to end. Composes the pieces the rest of
+ * this package provides: a fresh {@link ReceiptViewModel} per build,
+ * {@link QutePreprocesser}/{@link CappedRenderer} for the actual Qute
+ * parse and render, then {@link ReceiptHtmlCodec}/{@link ReceiptPdfCodec}
+ * to annotate the result with the receipt's own backing data and any
+ * reference tags the caller supplies.
+ *
+ * <p>Guarded (tracing enabled, access-budgeted) by default -- the right
+ * choice for anything not already known to be safe. {@link #unguarded()}
+ * opts out, for already-published, already-test-rendered content only;
+ * see {@code QutePreprocesser.newEngine(ReceiptViewModel)} /
+ * {@code QutePreprocesser.unguardedEngine(ReceiptRenderSettings)}.</p>
  *
  * <p>Not thread-safe, and not meant to be reused -- build one per render,
- * same as the {@code Receipt}/template pair it's wired to.</p>
+ * same as the {@code Receipt}/template pair it's wired to. Calling both
+ * {@link #buildHtml} and {@link #buildPdf} on the same instance works,
+ * but builds a separate {@link ReceiptViewModel} (and spends a separate
+ * access budget) for each call -- nothing is cached across them.</p>
  *
  * <p>Reference fields (the {@code templateXxx} setters) are the fixed,
  * known {@code crums:template-*} vocabulary {@link RenderConstants}
@@ -79,22 +90,48 @@ public final class RenderingBuilder {
       RenderConstants.TEMPLATE_VERSION_REF,
       RenderConstants.TEMPLATE_SRC_REF);
 
-  private final ReceiptViewModel viewModel;
+  private final Receipt receipt;
   private ReceiptRenderData kernel;
 
   private String contentId;
   private int maxChars = DEFAULT_MAX_CHARS;
   private boolean embedTemplateContent;
+  private ReceiptRenderSettings settings = new ReceiptRenderSettings();
+  private long maxAccesses = ReceiptViewModel.DEFAULT_MAX_ACCESSES;
+  private boolean guarded = true;
 
-  public RenderingBuilder(ReceiptViewModel viewModel, String templateContent) {
-    this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+  public RenderingBuilder(Receipt receipt, String templateContent) {
+    this.receipt = Objects.requireNonNull(receipt, "receipt");
     Objects.requireNonNull(templateContent, "templateContent");
-    this.kernel = new ReceiptRenderData(viewModel.unmeteredReceipt(), templateContent);
+    this.kernel = new ReceiptRenderData(receipt, templateContent);
   }
 
   /** Overrides {@link #DEFAULT_MAX_CHARS}. */
   public RenderingBuilder maxChars(int maxChars) {
     this.maxChars = maxChars;
+    return this;
+  }
+
+  /** Overrides the default, bare {@link ReceiptRenderSettings}. */
+  public RenderingBuilder settings(ReceiptRenderSettings settings) {
+    this.settings = Objects.requireNonNull(settings, "settings");
+    return this;
+  }
+
+  /** Overrides {@link ReceiptViewModel#DEFAULT_MAX_ACCESSES} -- irrelevant if {@link #unguarded()}. */
+  public RenderingBuilder maxAccesses(long maxAccesses) {
+    this.maxAccesses = maxAccesses;
+    return this;
+  }
+
+  /**
+   * Opts out of tracing/interrupt-checking and the access budget entirely
+   * -- the performance path for content already known to be safe (a
+   * published, already-test-rendered template). Anything ad-hoc or
+   * not-yet-published should stay on the guarded default.
+   */
+  public RenderingBuilder unguarded() {
+    this.guarded = false;
     return this;
   }
 
@@ -270,7 +307,10 @@ public final class RenderingBuilder {
   }
 
   private String renderHtmlString() {
-    Engine engine = QutePreprocesser.newEngine(viewModel);
+    ReceiptViewModel viewModel = new ReceiptViewModel(receipt, settings, maxAccesses, guarded);
+    Engine engine = guarded
+        ? QutePreprocesser.newEngine(viewModel)
+        : QutePreprocesser.unguardedEngine(viewModel.settings());
     Template t = engine.parse(kernel.templateContent(), null, contentId);
     return CappedRenderer.render(t.data(viewModel), maxChars);
   }

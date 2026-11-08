@@ -27,7 +27,7 @@ public class QutePreprocesserTest {
 
     ReceiptRenderSettings settings = new ReceiptRenderSettings();
     settings.setHashEncodingToHex();
-    Engine engine = QutePreprocesser.newEngine(settings);
+    Engine engine = QutePreprocesser.unguardedEngine(settings);
     Template t = engine.parse("{cell.display}");
     assertEquals(HashEncoding.HEX.encode(ByteBuffer.wrap(data)), t.data("cell", cell).render());
   }
@@ -44,12 +44,12 @@ public class QutePreprocesserTest {
 
     ReceiptRenderSettings hexSettings = new ReceiptRenderSettings();
     hexSettings.setHashEncodingToHex();
-    Engine hexEngine = QutePreprocesser.newEngine(hexSettings);
+    Engine hexEngine = QutePreprocesser.unguardedEngine(hexSettings);
     assertEquals(expected, hexEngine.parse("{cell.display}").data("cell", cell).render());
 
     ReceiptRenderSettings b64Settings = new ReceiptRenderSettings();
     b64Settings.setHashEncodingToB64();
-    Engine b64Engine = QutePreprocesser.newEngine(b64Settings);
+    Engine b64Engine = QutePreprocesser.unguardedEngine(b64Settings);
     assertEquals(expected, b64Engine.parse("{cell.display}").data("cell", cell).render());
   }
 
@@ -64,7 +64,7 @@ public class QutePreprocesserTest {
 
     ReceiptRenderSettings settings = new ReceiptRenderSettings();
     settings.setHashEncodingToB64();
-    Engine engine = QutePreprocesser.newEngine(settings);
+    Engine engine = QutePreprocesser.unguardedEngine(settings);
     Template t = engine.parse("{cell.display}");
 
     String rendered = t.data("cell", cell).render();
@@ -82,7 +82,7 @@ public class QutePreprocesserTest {
     Cell cell = new Cell.UnsaltedReveal(DataType.HASH, ByteBuffer.wrap(new byte[32]));
 
     ReceiptRenderSettings settings = new ReceiptRenderSettings(); // starts HEX (default)
-    Engine engine = QutePreprocesser.newEngine(settings);
+    Engine engine = QutePreprocesser.unguardedEngine(settings);
     Template t = engine.parse(
         "{cell.display}/{settings.setHashEncodingToB64()}{cell.display}");
 
@@ -98,6 +98,25 @@ public class QutePreprocesserTest {
   }
 
   @Test
+  public void testUnguardedEngine_doesNotObserveInterruption() {
+    // The other side of ReceiptViewModelTest's
+    // testInterruptedThread_abortsOnLiteralLoop_noCellDataTouched: no
+    // tracing means no interrupt check at all here, by design -- this is
+    // the performance-path engine, only ever meant for already-vetted
+    // content.
+    Engine engine = QutePreprocesser.unguardedEngine(new ReceiptRenderSettings());
+    Template t = engine.parse("{#for i in 50000}x{/for}");
+
+    Thread.currentThread().interrupt();
+    try {
+      String rendered = t.render();
+      assertEquals(50000, rendered.length());
+    } finally {
+      assertTrue(Thread.interrupted());
+    }
+  }
+
+  @Test
   public void testMismatchedSettingsInstances_scriptMutationHasNoEffect() {
     // Regression guard for the exact bug ReceiptRenderService#parseAndRender
     // used to have: an Engine built against one ReceiptRenderSettings
@@ -110,7 +129,7 @@ public class QutePreprocesserTest {
 
     ReceiptRenderSettings engineSettings = new ReceiptRenderSettings(); // closed over below
     ReceiptRenderSettings dataSettings = new ReceiptRenderSettings();  // a DIFFERENT instance
-    Engine engine = QutePreprocesser.newEngine(engineSettings);
+    Engine engine = QutePreprocesser.unguardedEngine(engineSettings);
     Template t = engine.parse(
         "{cell.display}/{settings.setHashEncodingToB64()}{cell.display}/{settings.hashEncoding}");
 

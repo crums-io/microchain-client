@@ -269,9 +269,8 @@ public class ReceiptHtmlCodecTest {
     SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
     Receipt receipt = new Receipt(List.of(cr));
-    ReceiptViewModel vm = new ReceiptViewModel(receipt);
 
-    RenderingBuilder rb = new RenderingBuilder(vm, "{receipt.chains.get(0).chainUri}")
+    RenderingBuilder rb = new RenderingBuilder(receipt, "{receipt.chains.get(0).chainUri}")
         .templateName("order-receipt")
         .templateVersion(3);
     byte[] htmlBytes = rb.buildHtml();
@@ -289,10 +288,9 @@ public class ReceiptHtmlCodecTest {
     SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
     ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
     Receipt receipt = new Receipt(List.of(cr));
-    ReceiptViewModel vm = new ReceiptViewModel(receipt);
     String templateContent = "{receipt.chains.get(0).chainUri}";
 
-    RenderingBuilder rb = new RenderingBuilder(vm, templateContent)
+    RenderingBuilder rb = new RenderingBuilder(receipt, templateContent)
         .templateName("order-receipt")
         .embedTemplateContent(true);
     byte[] htmlBytes = rb.buildHtml();

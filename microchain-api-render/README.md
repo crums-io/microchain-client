@@ -5,10 +5,11 @@ HTML or PDF -- the shared, portable presentation layer behind the server's
 named-template `/render` and ad-hoc `/_render_receipt` endpoints, and
 usable the same way by a plain-Java client later (`mchain`/`bindle`), not
 just a CDI-managed server. `RenderingBuilder` is the one class a caller
-actually needs: build a `ReceiptViewModel`, hand it and a template string
-to the builder, call `buildHtml()`/`buildPdf()`. Everything else in this
-module is either what the builder composes internally, or lower-level
-pieces available to a caller that wants more control.
+actually needs: hand it a `Receipt` and a template string, call
+`buildHtml()`/`buildPdf()` -- it builds its own `ReceiptViewModel`
+internally, fresh per call. Everything else in this module is either
+what the builder composes internally, or lower-level pieces available to
+a caller that wants more control.
 
 ## Package
 
@@ -46,8 +47,8 @@ different `Engine` configuration than the builder gives.
 
 | Class | Role |
 |---|---|
-| `RenderingBuilder` | The actual entry point: parses/renders `content` against a `ReceiptViewModel` (via `.engine` below), then embeds the result via `ReceiptHtmlCodec`/`ReceiptPdfCodec` below. `byte[]` in, `byte[]` out for both `buildHtml()`/`buildPdf()` -- no checked exceptions; a PDF-pipeline I/O failure surfaces as `RenderIOException` instead. The 5 fixed reference fields (the `RenderConstants` vocabulary) are individual, named `templateXxx(...)` setters -- `templateOwner`/`templateSrc` take a `URI` (both resolve to a real, fetchable page), the rest a `String`/`long`. `putMeta(key, value)` adds a caller-named reference beyond that fixed set (key/value shape-validated, length-capped). Every reference field, fixed or caller-named, is optional but write-once -- calling the same one twice throws. `embedTemplateContent(boolean)` (default `false`) decides, fresh on every `buildHtml()`/`buildPdf()` call, whether the literal Qute template source is also embedded alongside the receipt -- the codecs make no such decision themselves. `kernel()` exposes the accumulated `ReceiptRenderData` directly |
-| `ReceiptViewModel` | A `Receipt` paired with `ReceiptRenderSettings` and an access-count budget -- this instance itself, not just `receipt()`, is the root data object Qute is actually fed (`template.data(viewModel)`); carries no Qute dependency itself |
+| `RenderingBuilder` | The actual entry point: takes a `Receipt` directly (not a `ReceiptViewModel` -- it builds its own, fresh per `buildHtml()`/`buildPdf()` call, via `.engine` below), then embeds the result via `ReceiptHtmlCodec`/`ReceiptPdfCodec` below. `byte[]` in, `byte[]` out for both -- no checked exceptions; a PDF-pipeline I/O failure surfaces as `RenderIOException` instead. Guarded (tracing enabled, access-budgeted) by default; `unguarded()` opts out for already-published, already-test-rendered content -- see `ReceiptViewModel` below. `settings(ReceiptRenderSettings)`/`maxAccesses(long)` override that view model's own defaults; irrelevant if `unguarded()`. The 5 fixed reference fields (the `RenderConstants` vocabulary) are individual, named `templateXxx(...)` setters -- `templateOwner`/`templateSrc` take a `URI` (both resolve to a real, fetchable page), the rest a `String`/`long`. `putMeta(key, value)` adds a caller-named reference beyond that fixed set (key/value shape-validated, length-capped). Every reference field, fixed or caller-named, is optional but write-once -- calling the same one twice throws. `embedTemplateContent(boolean)` (default `false`) decides, fresh on every `buildHtml()`/`buildPdf()` call, whether the literal Qute template source is also embedded alongside the receipt -- the codecs make no such decision themselves. `kernel()` exposes the accumulated `ReceiptRenderData` directly |
+| `ReceiptViewModel` | A `Receipt` paired with `ReceiptRenderSettings` and an access-count budget -- this instance itself, not just `receipt()`, is the root data object Qute is actually fed (`template.data(viewModel)`); carries no Qute dependency itself. Guarded by default (every access checked against the budget); an unguarded instance skips that entirely -- see `RenderingBuilder.unguarded()` |
 | `ReceiptRenderSettings` | Mutable, shareable settings for `cell.display`'s safe/normalized rendering: redacted/null sentinels, `DATE` format, `HASH` hash encoding (`BYTES` is always standard Base64, not configurable -- `HashEncoding`/`Base64_32` requires exactly 32 bytes, which only a `HASH` cell is guaranteed to be) |
 | `ReceiptRenderData` | The "chunky argument" both codecs below embed/extract in one pass: a `Receipt`, its `metaInfo` reference tags, and -- optionally -- the exact literal Qute template source (`templateContent`; present only on an instance actually meant to drive a render, see `isKernel()`). Immutable; `withXxx(...)`/`sansTemplateContent()` return a modified copy, never mutate in place |
 | `ReceiptCodec` | Documentation interface both codecs below implement (`embed(byte[], ReceiptRenderData)` / `extract(byte[])`) -- in practice each codec is used directly, not through this interface |
@@ -67,7 +68,7 @@ different `Engine` configuration than the builder gives.
 
 | Class | Role |
 |---|---|
-| `QutePreprocesser` | Builds an `Engine` wired for this exactly: `ReflectionValueResolver` for property/method access on real domain objects (`Receipt.chains()`, `ChainReceipt`/`SourceReceipt.rows()`, `SourceRow.cells()`, ...), plus one virtual property `cell.display`. `{#eval}` is deliberately dropped -- the one built-in construct that's genuinely self-referential and the one way untrusted cell data could be promoted to live template code. `strictRendering(true)`: a typo'd property/method reference fails fast rather than rendering blank. |
+| `QutePreprocesser` | Builds an `Engine` wired for this exactly: `ReflectionValueResolver` for property/method access on real domain objects (`Receipt.chains()`, `ChainReceipt`/`SourceReceipt.rows()`, `SourceRow.cells()`, ...), plus one virtual property `cell.display`. `{#eval}` is deliberately dropped -- the one built-in construct that's genuinely self-referential and the one way untrusted cell data could be promoted to live template code. `strictRendering(true)`: a typo'd property/method reference fails fast rather than rendering blank. `newEngine(ReceiptViewModel)` (guarded) enables Qute's tracing and wires a listener that calls `viewModel.checkBudget()` once per resolved template node -- every loop iteration, not just ones that happen to touch a real cell/row; `unguardedEngine(ReceiptRenderSettings)` skips tracing entirely, for already-vetted content only (per the Qute maintainers' own guidance that per-node interrupt checks aren't free). |
 | `CappedRenderer` | Renders via `TemplateInstance#consume` (not `render()`/`renderAsync()`) so output can be aborted mid-stream the moment it crosses the char budget, rather than only after a huge buffer already exists |
 
 ## End-to-end usage
@@ -82,13 +83,14 @@ TODO) -- so template syntax looks like `{chains.get(0).rows.get(0).cells.get(0).
 // against this content:
 TemplateShapeGuard.validate(content);
 
-ReceiptViewModel viewModel = new ReceiptViewModel(receipt); // or with settings/maxAccesses
-RenderingBuilder rb = new RenderingBuilder(viewModel, content)
+RenderingBuilder rb = new RenderingBuilder(receipt, content)
     .contentId(contentHash)        // optional -- Engine#parse's own identity, not a cache key
     .maxChars(maxChars)            // optional -- defaults to RenderingBuilder.DEFAULT_MAX_CHARS
     .embedTemplateContent(true)    // optional -- also embed the literal template source; default false
-    .templateSrc(srcUri);          // optional -- each templateXxx(...) reference field is its own setter,
+    .templateSrc(srcUri)           // optional -- each templateXxx(...) reference field is its own setter,
                                     // write-once (throws if called twice), and skipped entirely if never set
+    .unguarded();                  // optional -- ONLY for already-published, already-test-rendered
+                                    // content; omit this for anything ad-hoc or not-yet-published
 
 byte[] html;
 try {
@@ -111,12 +113,15 @@ the inverse call: `ReceiptHtmlCodec.CODEC.extract(html)` /
 `Optional<ReceiptRenderData>` -- empty only if no receipt was ever
 embedded in the first place.
 
-A caller that wants finer control than the builder gives -- a different
-`Engine` configuration, or embedding into an HTML/PDF it rendered some
-other way -- can reach for the pieces `RenderingBuilder` itself composes
-directly: `QutePreprocesser.newEngine(viewModel)` + `CappedRenderer.render`
-for the Qute step, `ReceiptHtmlCodec.CODEC`/`ReceiptPdfCodec.CODEC` for the
-embedding step.
+`RenderingBuilder` is the only way in from outside this module -- the
+`.engine` package it composes internally (`QutePreprocesser`,
+`CappedRenderer`) is deliberately not exported, since Qute is the
+implementation behind this module's rendering DSL, not part of the DSL
+itself. A caller embedding into an HTML/PDF it rendered some other way
+can still reach the embedding step directly: `ReceiptHtmlCodec.CODEC`/
+`ReceiptPdfCodec.CODEC`. Finer control over the Qute step itself (a
+different `Engine` configuration) means changing this module, not
+reaching into it from outside.
 
 A render thread should observe interruption (`Thread.interrupted()`) so a
 timed-out render's thread is actually reclaimed rather than abandoned --
@@ -133,7 +138,11 @@ that possible without any Qute-specific code needed to detect it.
 
 Server-side use (the server's own render service, behind
 `/{user}/_receipt_templates/{name}/render` and `/_render_receipt`) is done
-and in production. Client-side use (`mchain`/`bindle` rendering a receipt
-entirely locally, against a hand-built `Engine` instead of a CDI-injected
-one) is still TODO -- see the top-level README's
-[Presentation](../README.md#presentation) section.
+and in production, driven entirely through a CDI-injected
+`RenderingBuilder`/`ReceiptViewModel`. Client-side use (`mchain`/`bindle`
+rendering a receipt entirely locally) is still TODO -- see the top-level
+README's [Presentation](../README.md#presentation) section. It'll go
+through `RenderingBuilder` the same way the server does, not a
+hand-built `Engine`: the `.engine` package isn't exported, by design (see
+`QutePreprocesser`'s own class javadoc) -- Qute is this module's
+rendering-DSL implementation, not part of its public surface.

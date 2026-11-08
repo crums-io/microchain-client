@@ -26,6 +26,8 @@ import io.quarkus.qute.SetSectionHelper;
 import io.quarkus.qute.ValueResolver;
 import io.quarkus.qute.WhenSectionHelper;
 import io.quarkus.qute.WithSectionHelper;
+import io.quarkus.qute.trace.ResolveEvent;
+import io.quarkus.qute.trace.TraceListener;
 
 /**
  * Registers everything a Qute {@link Engine} needs to render a {@code
@@ -37,19 +39,20 @@ import io.quarkus.qute.WithSectionHelper;
  * {@code DATE}/{@code BYTES}/{@code HASH} cell's raw value (epoch millis /
  * a bare {@link ByteBuffer}) isn't printable as-is.
  *
- * <p>This class, and the {@code .engine} package it lives in, is exported:
- * Qute is part of the rendering DSL itself, not an implementation detail
- * worth hiding behind {@link io.crums.micro.api.render.ReceiptViewModel}.
- * It's still kept in its own package because it's tooling a caller reaches
- * for only when actually wiring up an {@link Engine} -- building one via
- * {@link #newEngine(ReceiptViewModel)} -- not something touched on the
- * common per-render path.</p>
+ * <p>This class, and the {@code .engine} package it lives in, is deliberately
+ * <em>not</em> exported: Qute is the implementation behind this module's
+ * rendering DSL, not part of the DSL itself, so a caller outside this
+ * module never needs to see it. {@code RenderingBuilder} is the one
+ * caller that actually wires up an {@link Engine} this way -- building one
+ * via {@link #newEngine(ReceiptViewModel)} or {@link
+ * #unguardedEngine(ReceiptRenderSettings)} -- not something touched on the
+ * common per-render path otherwise.</p>
  */
 public final class QutePreprocesser {
 
   /**
    * Matches {@code EngineBuilder}'s own default (verified against
-   * qute-core 3.17.6 bytecode) -- the prefix used for implicit loop
+   * qute-core 3.40.1 sources) -- the prefix used for implicit loop
    * metadata variables ({@code count}, {@code index}, etc). Not reachable
    * via public API once {@code addDefaultSectionHelpers()} is bypassed
    * below, so it's reproduced here instead.
@@ -61,31 +64,65 @@ public final class QutePreprocesser {
 
 
   /**
-   * Creates and returns a new engine bound to the given model's
-   * {@linkplain ReceiptViewModel#settings() settings}. The one public way
-   * to build an {@link Engine} -- it ties the engine's {@code
-   * cell.display} resolver to the exact same settings instance the view
-   * model itself carries, by construction, rather than leaving the two in
-   * sync up to the caller (the engine and the view model used to be built
-   * independently, each with its own default {@link ReceiptRenderSettings},
-   * which is exactly how {@code ReceiptRenderService} once silently lost
-   * track of which instance was which).
+   * Creates and returns a new <em>guarded</em> engine bound to the given
+   * model's {@linkplain ReceiptViewModel#settings() settings}. Ties the
+   * engine's {@code cell.display} resolver to the exact same settings
+   * instance the view model itself carries, by construction, rather than
+   * leaving the two in sync up to the caller (the engine and the view
+   * model used to be built independently, each with its own default
+   * {@link ReceiptRenderSettings}, which is exactly how {@code
+   * ReceiptRenderService} once silently lost track of which instance was
+   * which).
+   *
+   * <p>"Guarded" means tracing is enabled ({@code enableTracing(true)})
+   * and a {@link TraceListener} is wired in that calls {@code
+   * viewModel.checkBudget()} once per resolved template node -- every
+   * loop iteration, not just ones that happen to touch a real cell/row
+   * (which is all {@code viewModel}'s own {@code SourceRowView} wiring
+   * can see). This is the one that belongs behind unvetted content: a
+   * publish-time test-render, or any other ad-hoc/not-yet-published
+   * template. For already-published, already-test-rendered content,
+   * {@link #unguardedEngine(ReceiptRenderSettings)} skips tracing
+   * entirely, since the Qute maintainers' own guidance is that per-node
+   * interrupt checks aren't free and shouldn't sit in a hot path that
+   * doesn't need them.</p>
    */
   public static Engine newEngine(ReceiptViewModel viewModel) {
-    return configure(builderWithoutEval(), viewModel.settings()).build();
+    Engine engine = configure(builderWithoutEval().enableTracing(true), viewModel.settings()).build();
+    engine.getTraceManager().addTraceListener(new BudgetTraceListener(viewModel));
+    return engine;
   }
 
 
   /**
-   * Package-private: an engine bound directly to a bare {@link
-   * ReceiptRenderSettings}, with no {@link ReceiptViewModel} needed. Exists
-   * only for this module's own low-level tests that exercise {@code
-   * cell.display} or generic engine wiring directly, with no {@code
-   * Receipt} object graph involved -- {@link #newEngine(ReceiptViewModel)}
-   * is the one public way to build an {@link Engine}.
+   * Creates and returns a new <em>unguarded</em> engine bound directly to
+   * a bare {@link ReceiptRenderSettings}, with no {@link ReceiptViewModel}
+   * and no tracing -- the performance-oriented counterpart to {@link
+   * #newEngine(ReceiptViewModel)}. No per-node interrupt check, no access
+   * budget: nothing stops a runaway loop here on its own. Only ever call
+   * this for content that's already been vetted (a published,
+   * already-test-rendered template, or receipt data whose loop bounds are
+   * already known-sane) -- anything ad-hoc or not-yet-published belongs
+   * on {@link #newEngine(ReceiptViewModel)} instead.
    */
-  static Engine newEngine(ReceiptRenderSettings settings) {
+  public static Engine unguardedEngine(ReceiptRenderSettings settings) {
     return configure(builderWithoutEval(), settings).build();
+  }
+
+
+  /** Calls {@code viewModel.checkBudget()} once per resolved template node. */
+  private static final class BudgetTraceListener implements TraceListener {
+
+    private final ReceiptViewModel viewModel;
+
+    private BudgetTraceListener(ReceiptViewModel viewModel) {
+      this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+    }
+
+    @Override
+    public void onBeforeResolve(ResolveEvent event) {
+      viewModel.checkBudget();
+    }
   }
 
   /**
@@ -155,11 +192,11 @@ public final class QutePreprocesser {
       // HASH is always exactly 32 bytes -- the one case HashEncoding (hex or
       // base64_32) is actually meant for.
       case HASH        -> settings.hashEncoding().encode((ByteBuffer) raw);
-      // BYTES is an arbitrary-length blob (e.g. an embedded image) -- NOT a
-      // hash, so HashEncoding doesn't apply: Base64_32.encode throws
-      // IllegalArgumentException on anything but exactly 32 bytes. Standard
-      // Base64 has no such restriction, and doubles as exactly what a
-      // template needs to build a `data:...;base64,` URI from the cell.
+      // BYTES is an arbitrary-length blob (e.g. an embedded image). Standard
+      // Base64 doubles as exactly what a template needs to build an inlined
+      // image from the cell -- the media type isn't stored on the cell
+      // itself, so the template author supplies it, e.g.:
+      // <img src="data:image/png;base64,{cell.display}">
       case BYTES       -> Base64.getEncoder().encodeToString(toByteArray((ByteBuffer) raw));
       default          -> raw; // STRING, LONG, BIG_INT, BIG_DEC, BOOL
     };

@@ -16,11 +16,10 @@ public class CappedRendererTest {
 
   // No Receipt/ChainReceipt graph is relevant to anything tested here
   // (char-budget capping, strict-rendering exceptions, {#eval} exclusion)
-  // -- this is the module's own package-private QutePreprocesser.newEngine
-  // (ReceiptRenderSettings) overload, wrapped locally since it's not part
-  // of the public API.
+  // -- the unguarded (no tracing) engine is the right fit since there's no
+  // ReceiptViewModel to budget-check against here anyway.
   private Engine newEngine() {
-    return QutePreprocesser.newEngine(new ReceiptRenderSettings());
+    return QutePreprocesser.unguardedEngine(new ReceiptRenderSettings());
   }
 
   @Test

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import io.crums.micro.api.receipt.ChainReceipt;
 import io.crums.micro.api.receipt.Receipt;
+import io.crums.micro.api.render.engine.CappedRenderer;
 import io.crums.micro.api.render.engine.QutePreprocesser;
 import io.crums.sldg.src.SourceRow;
 import io.crums.sldg.src.SourceRowBuilder;
@@ -134,6 +135,37 @@ public class ReceiptViewModelTest {
     Thread.currentThread().interrupt();
     try {
       assertThrows(RenderInterruptedException.class, () -> sourceRow.cells().get(0));
+    } finally {
+      assertTrue(Thread.interrupted());
+    }
+  }
+
+  @Test
+  public void testInterruptedThread_abortsOnLiteralLoop_noCellDataTouched() {
+    // The gap SourceRowView's AccessListener alone can't close: a loop
+    // whose body never touches a real cell/row never reaches that hook at
+    // all. QutePreprocesser.newEngine(ReceiptViewModel) wires a
+    // TraceListener that calls checkBudget() once per resolved template
+    // node instead -- reachable even here, since {#for i in N} resolves
+    // its literal text body once per iteration regardless of what (if
+    // anything) that body touches.
+    SourceRowBuilder builder = new SourceRowBuilder();
+    SourceRow row = builder.buildRow(1L, "Acme Corp", 42L);
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
+    ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
+
+    Template t = engine.parse("{#for i in 50000}x{/for}");
+
+    // Template#render() wraps every render-time failure in a
+    // TemplateException (confirmed empirically -- not documented), which
+    // is exactly why the production path (RenderingBuilder) never calls
+    // it directly: CappedRenderer.render() goes through consume() instead
+    // and unwraps the real cause, so that's what this test goes through too.
+    Thread.currentThread().interrupt();
+    try {
+      assertThrows(RenderInterruptedException.class,
+          () -> CappedRenderer.render(t.data(vm), 1_000_000));
     } finally {
       assertTrue(Thread.interrupted());
     }
