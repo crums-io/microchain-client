@@ -14,10 +14,18 @@ import io.crums.sldg.json.HashEncoding;
  * value ({@code cell.display}) is rendered: the redacted/null sentinels and
  * the DATE/BYTES/HASH normalization format.
  *
- * <p>One instance is normally shared for the lifetime of a Qute {@code
- * Engine} -- closed over by the {@code cell.display} resolver at
- * engine-configure time -- so changing a setting here takes effect on the
- * next render without rebuilding the engine. Fields are {@code volatile}.</p>
+ * <p>Closed over by the {@code cell.display} resolver at engine-configure
+ * time, so a setting change takes effect on the next render without
+ * rebuilding the engine. Fields are plain, not {@code volatile} -- no
+ * synchronization is needed, since every setter/getter here is a
+ * synchronous, reflective method, and Qute resolves those entirely on the
+ * one thread doing a given render, never hopping threads mid-resolution
+ * (confirmed against qute-core 3.40.1: its internal already-completed
+ * {@code CompletionStage} throws {@code UnsupportedOperationException}
+ * from every {@code *Async} method, meaning Qute's own machinery never
+ * calls them for a resolver like this one). This class still isn't a safe
+ * choice to share across two renders running <em>concurrently</em> on
+ * different threads -- nothing in this codebase does that today.</p>
  *
  * <p>Every setter returns {@code String} (always {@code ""}), not {@code
  * void} and not {@code this}. {@code void} is not an option: a Qute
@@ -42,13 +50,13 @@ public final class ReceiptRenderSettings {
   public static final HashEncoding DEFAULT_HASH_ENCODING = HashEncoding.HEX;
   public static final int DATE_FORMAT_CAP = 1000;
 
-  private volatile String redactSymbol = DEFAULT_REDACT_SYMBOL;
+  private String redactSymbol = DEFAULT_REDACT_SYMBOL;
 
-  private volatile String nullSymbol = DEFAULT_NULL_SYMBOL;
+  private String nullSymbol = DEFAULT_NULL_SYMBOL;
 
-  private volatile HashEncoding hashEncoding = DEFAULT_HASH_ENCODING;
+  private HashEncoding hashEncoding = DEFAULT_HASH_ENCODING;
 
-  private volatile DateFormat dateFormat;
+  private DateFormat dateFormat;
 
 
   public String redactSymbol() {

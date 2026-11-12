@@ -6,7 +6,6 @@ package io.crums.micro.api.render;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicLong;
 
 import io.crums.micro.api.receipt.ChainReceipt;
 import io.crums.micro.api.receipt.Receipt;
@@ -36,10 +35,15 @@ public final class ReceiptViewModel {
    */
   public static final long DEFAULT_MAX_ACCESSES = 2_000_000L; // see checkBudget()
 
-  private final AtomicLong accessCount = new AtomicLong();
+  // Plain field, not Atomic/volatile: checkBudget() is only ever called from
+  // the one thread doing a given render (see Calculator's javadoc for why
+  // Qute never hops threads mid-render for a synchronous, reflective
+  // resolver like this one) -- confirmed against qute-core 3.40.1 sources.
+  private long accessCount;
   private final ReceiptRenderSettings settings;
   private final long maxAccesses;
   private final Receipt receipt;
+  private final Calculator calc = new Calculator();
 
   // Package-private: nobody outside io.crums.micro.api.render needs to
   // construct one of these directly -- RenderingBuilder is the only real
@@ -103,8 +107,17 @@ public final class ReceiptViewModel {
     return settings;
   }
 
+  /**
+   * A scratch {@link Calculator}, for a template that needs arithmetic
+   * Qute itself has no operators for -- one fresh instance per view
+   * model, same sharing lifetime as {@link #settings()}.
+   */
+  public Calculator calc() {
+    return calc;
+  }
 
-  
+
+
 
   /**
    * Checks the current thread's interrupt status, plus the per-instance access-count budget:
@@ -138,7 +151,7 @@ public final class ReceiptViewModel {
     // support interrupt from managed thread pools
     if (Thread.currentThread().isInterrupted())
       throw new RenderInterruptedException();
-    if (accessCount.incrementAndGet() > maxAccesses)
+    if (++accessCount > maxAccesses)
       throw new RenderAccessBudgetExceededException(maxAccesses);
   }
 

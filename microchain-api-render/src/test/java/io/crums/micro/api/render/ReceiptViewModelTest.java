@@ -285,4 +285,62 @@ public class ReceiptViewModelTest {
 
     assertEquals("/N/A", t.render(vm));
   }
+
+  @Test
+  public void testCalc_reachableFromTemplate_computesLineSubtotalsAndGrandTotal() {
+    // Mimics the real case Qute's own operators can't do at all (no
+    // arithmetic in the language): per-row price*qty, accumulated across
+    // rows via calc's memory, same as a real calculator's M+ button.
+    //
+    // Must call {calc.display()} explicitly here, not a bare {calc} --
+    // Qute fully resolves a template (running every side-effecting call,
+    // in order) BEFORE processing the result tree into text (confirmed
+    // against qute-core 3.40.1: TemplateImpl resolves, then calls
+    // r.process(consumer) only once resolution completes). A bare {calc}
+    // resolves to a live reference to the mutable Calculator itself, so
+    // its toString() -- called during that later processing pass, not
+    // resolution -- always reflects calc's FINAL state, not its state at
+    // that point in the template. {calc.display()} doesn't have this
+    // problem: the String it returns is captured at resolution time,
+    // before any later mutation. Bare {calc} is still fine for exactly
+    // one case -- a single, final read with nothing mutating it after.
+    SourceRowBuilder builder = new SourceRowBuilder();
+    SourceRow item1 = builder.buildRow(1L, 449L, 1L);           // price, qty
+    SourceRow item2 = builder.buildRow(2L, new java.math.BigDecimal("1799.99"), 2L);
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(item1, item2), Optional.empty());
+    ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
+
+    Template t = engine.parse(
+        "{#for item in chains.get(0).rows}" +
+        "{calc.enter(item.cells.get(0).display)}{calc.times(item.cells.get(1).display)}" +
+        "{calc.mPlus()}{calc.display()}/" +
+        "{/for}" +
+        "{calc.mRecall()}{calc.display()}");
+
+    assertEquals("449/3599.98/4048.98", t.render(vm));
+  }
+
+  @Test
+  public void testCalc_indexedMemoryOverload_resolvedCorrectlyFromTemplate() {
+    // Calculator.mPlus/mMinus/mClear/mRecall each have a 0-arg form and a
+    // 1-arg (int index) form, same method name. Never proven before that
+    // Qute's reflection-based resolver (which picks a method by name AND
+    // argument count) actually distinguishes the two correctly from a
+    // template call site -- this is exactly that proof, not a plain-Java
+    // one (CalculatorTest already covers the Java-level behavior).
+    SourceRowBuilder builder = new SourceRowBuilder();
+    SourceRow row = builder.buildRow(1L, 0L); // row content is irrelevant to this test
+    ChainReceipt cr = new ChainReceipt(CHAIN_URL, List.of(row), Optional.empty());
+    ReceiptViewModel vm = new ReceiptViewModel(new Receipt(List.of(cr)));
+    Engine engine = QutePreprocesser.newEngine(vm);
+
+    Template t = engine.parse(
+        "{calc.enter(10)}{calc.mPlus(3)}" +     // slot 3 = 10, via the indexed overload
+        "{calc.enter(99)}{calc.mPlus()}" +      // slot 0 = 99, via the zero-arg overload
+        "{calc.mRecall(3)}{calc.display()}/" +
+        "{calc.mRecall()}{calc.display()}");
+
+    assertEquals("10/99", t.render(vm));
+  }
 }
