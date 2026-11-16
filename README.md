@@ -123,8 +123,8 @@ Before any of the tools below can do anything useful:
    `/{user}/{chain}` (in these docs, user `bikeshop`).
 2. **Create a named access token**, from your account's manage page. This token
    authorizes access to every Bearer-protected endpoint (`/commit`, `/salts`,
-   `/sql-config`, `PUT /columns`, `POST /_receipt_templates/{name}`) for any
-   chain configured to use it.
+   `/sql-config`, `POST /_receipt_templates/{name}`) for any chain configured
+   to use it.
 
 The examples throughout this document use a hypothetical `bikeshop` account
 with three related chains — `orders`, `order_items`, and `customers` —
@@ -446,11 +446,11 @@ As noted in [Local config file](#local-config-file---local-config) above,
 chain parameters ultimately belong on the server. The general shape of this
 workflow, then, is: **draft and test locally, then move the authoritative
 copy to the server and remove it from the local file** — steps 1–2 are the
-"draft and test locally" half, steps 3–8 register everything on the server,
-step 9 is the hand-off, and step 10 re-tests against what's now
+"draft and test locally" half, steps 3–7 register everything on the server,
+step 8 is the hand-off, and step 9 re-tests against what's now
 server-authoritative. (Automating that hand-off — something like an
 `mchain config ... push` / `pull` pair — is on the TODO list; for now, moving
-the fields over is a manual step.) Steps 3–9 apply per chain — step 12 shows
+the fields over is a manual step.) Steps 3–8 apply per chain — step 11 shows
 what repeating them for `order_items` and `customers` leaves the local file
 looking like once all three have gone through the same hand-off.
 
@@ -484,10 +484,10 @@ looking like once all three have gone through the same hand-off.
 
    Give each selected column a deliberate name via SQL `AS`, e.g.
    `SELECT order_id, quantity AS Qty, list_price AS Price FROM order_items WHERE order_item_seq = ?`.
-   `mchain rows --pretty` falls back to whatever the JDBC driver reports as
-   the column's label when no name has been configured server-side (see step
-   8), so a query written with clear `AS` aliases displays sensibly even
-   before column metadata exists.
+   `mchain rows --pretty` displays that `AS` label directly; a query with no
+   `AS` alias falls back to whatever bare label the JDBC driver reports for
+   that column (often just its ordinal position), so writing deliberate
+   aliases is the only way to get a readable label here.
 
 2. **Test the queries**, entirely offline, before registering the chain
    anywhere:
@@ -558,37 +558,7 @@ looking like once all three have gone through the same hand-off.
    chmod 600 ~/.config/crums/bikechains.json
    ```
 
-8. **Optionally name the columns** — decorative metadata (it's never part of
-   the commitment hash) that `mchain rows --pretty` displays in place of bare
-   positional indices, and that future features (`/verify` receipts,
-   Qute-rendered templates) will use to label cells for recipients who hold a
-   source row but no bearer token. Unlike the rest of the chain's
-   configuration, this is public and is set directly via the CLI — no manual
-   server-side step required:
-
-   ```sh
-   mchain columns -c ~/.config/crums/bikechains.json --chain orders \
-       --name 0="Customer ID" \
-       --name 1="Order Date" \
-       --name 2="Store ID" \
-       --name 3="Staff ID"
-   ```
-
-   Options not supplied are left unchanged — the command fetches the current
-   list, merges in the given `--name` / `--description` / `--clear`
-   overrides, and PUTs the full merged list back. Run without any of those
-   options to view the current metadata:
-
-   ```sh
-   mchain columns -c ~/.config/crums/bikechains.json --chain orders
-   ```
-
-   Column indices are 0-based, matching `SourceRow.cells()` ordering. As noted in step 1,
-   a query written with clear `AS` aliases already displays sensibly via the
-   JDBC fallback, so this step is most useful for names the query itself
-   can't express well, or for adding a longer `--description`.
-
-9. **Move the query definitions to the server, then remove them locally.**
+8. **Move the query definitions to the server, then remove them locally.**
    Once steps 1–6 check out end-to-end against the local file, copy
    `by_no_query`, `row_count_query`, `jdbc_url`, `timezone`, and `default_lag`
    into the chain's `sql-config` on the website — doing so is what makes them
@@ -619,24 +589,24 @@ looking like once all three have gone through the same hand-off.
    ```
 
    (`order_items` and `customers` still carry their local queries here — only
-   `orders` has been through the hand-off so far; see step 12.)
+   `orders` has been through the hand-off so far; see step 11.)
 
-10. **Re-test**, now against the server-side configuration, to confirm
-    nothing was lost in the hand-off (salted-ness, token, and column names
-    all still resolve correctly end-to-end):
+9. **Re-test**, now against the server-side configuration, to confirm
+   nothing was lost in the hand-off (salted-ness and token both still
+   resolve correctly end-to-end):
 
-    ```sh
-    mchain rows -c ~/.config/crums/bikechains.json --chain orders --row 1 --pretty
-    ```
+   ```sh
+   mchain rows -c ~/.config/crums/bikechains.json --chain orders --row 1 --pretty
+   ```
 
-11. **Commit** — a few rows first as a sanity check, then everything:
+10. **Commit** — a few rows first as a sanity check, then everything:
 
     ```sh
     mchain commit -c ~/.config/crums/bikechains.json --chain orders --to 10
     mchain commit -c ~/.config/crums/bikechains.json --chain orders
     ```
 
-12. **Repeat steps 3–9 for `order_items` and `customers`.** Once every
+11. **Repeat steps 3–8 for `order_items` and `customers`.** Once every
     related chain has been through the same hand-off, the local file holds
     nothing but shared connection details and secrets — everything per-chain
     now comes from the server:
@@ -655,7 +625,7 @@ looking like once all three have gone through the same hand-off.
     }
     ```
 
-13. **From here on, you can commit every chain in one command.**
+12. **From here on, you can commit every chain in one command.**
     (`mchain commit-all`). If the chains are running against a live system make sure
     their `--lag` settings leave a comfortable buffer for in-flight, yet-to-be-committed
     DB transactions. See also,

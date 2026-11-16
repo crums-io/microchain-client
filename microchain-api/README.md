@@ -24,7 +24,6 @@ Version omitted for now — not yet published anywhere resolvable outside this r
 |---|---|
 | `ApiConstants` | JSON field-name constants for all endpoints |
 | `ChainInfo` | Response record for `GET /{user}/{chain}/info` |
-| `ColumnInfo` | One column's decorative name/description for `GET`/`PUT /{user}/{chain}/columns` |
 | `SqlConfig` | Response record for `GET /{user}/{chain}/sql-config` |
 | `DbConfig` | JDBC connection parameters (URL, driver class/jar, properties); embedded in `SqlConfig`, also usable standalone before a chain's SQL queries are known |
 | `LocalConfig` | The `--local-config` JSON file format: shared defaults plus one `LocalConfig.ChainConfig` entry per chain |
@@ -44,8 +43,6 @@ deserialisation.
 
 ```
 GET  /{user}/{chain}/info       → ChainInfo
-GET  /{user}/{chain}/columns    → List<ColumnInfo>
-PUT  /{user}/{chain}/columns    → List<ColumnInfo>
 GET  /{user}/{chain}/salts      → List<EpochSeed>  (EpochSeedParser, from source-ledger)
 GET  /{user}/{chain}/sql-config → SqlConfig
 GET  /{user}/{chain}/state      → Path             (PathPackParser,  from skipledger-base)

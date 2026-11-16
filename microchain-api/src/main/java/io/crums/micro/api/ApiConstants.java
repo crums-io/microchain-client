@@ -24,12 +24,6 @@ public class ApiConstants {
   public static final String DESCRIPTION_KEY  = "description";
   public static final String SALTED_KEY       = "salted";
 
-  // /{user}/{chain}/columns
-  public static final String COLUMNS_KEY             = "columns";
-  public static final String COLUMN_INDEX_KEY        = "index";
-  public static final String COLUMN_NAME_KEY         = "name";
-  public static final String COLUMN_DESCRIPTION_KEY  = "description";
-
   // /{user}/{chain}/salts  (owned by EpochSeedParser)
   public static final String SEED_START_KEY = EpochSeedParser.SEED_START_KEY;
   public static final String SEED_KEY       = EpochSeedParser.SEED_KEY;

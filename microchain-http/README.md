@@ -37,8 +37,6 @@ below, replace `https://micro.crums.io/bikeshop/orders` with your chain URL and
 |---|---|---|---|
 | GET | `/{user}/_chains` | — | List all chains for a user |
 | GET | `/{user}/{chain}/info` | — | Chain metadata: ledger type, title, salted |
-| GET | `/{user}/{chain}/columns` | — | Decorative column names/descriptions |
-| PUT | `/{user}/{chain}/columns` | Bearer | Replace column names/descriptions |
 | GET | `/{user}/{chain}/state` | — | Skipledger commitment path (PathPack) |
 | GET | `/{user}/{chain}/salts` | Bearer | Salt epoch seeds (owner only) |
 | GET | `/{user}/{chain}/sql-config` | Bearer | JDBC queries, connection URL, timezone, default lag |
@@ -79,60 +77,6 @@ Response fields:
 
 There is no per-column salting: a chain's rows are either entirely salted or
 entirely unsalted.
-
----
-
-### `GET` / `PUT /columns` — column metadata (public read, Bearer write)
-
-Decorative per-column metadata: a human-readable name and optional
-description, keyed by 0-based column index (matching
-`SourceRow.cells()` ordering). Unlike `/sql-config`, `GET` requires no
-token — this data is meant to label cells for recipients who hold a source
-row but no bearer token (e.g. `/verify` receipts below, Qute-rendered
-templates).
-
-```sh
-# View (public)
-curl https://micro.crums.io/bikeshop/orders/columns
-
-# Replace (Bearer; full-list replace — see the top-level README's
-# `mchain columns` command for incremental edits that preserve entries
-# you don't mention)
-curl -X PUT \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '[
-       { "index": 0, "name": "Customer ID" },
-       { "index": 1, "name": "Order Date", "description": "Date the order was placed" }
-     ]' \
-     https://micro.crums.io/bikeshop/orders/columns
-```
-
-**Response** — a JSON array, ordered by `index` ascending:
-
-```json
-[
-  { "index": 0, "name": "Customer ID" },
-  { "index": 1, "name": "Order Date", "description": "Date the order was placed" }
-]
-```
-
-| Field | Description |
-|---|---|
-| `index` | 0-based column position |
-| `name` | Human-readable column name |
-| `description` | Optional longer explanation (omitted if not set) |
-
-`PUT` is a full-list replace: indices not included in the request body are
-removed. Gaps in indices are allowed — not every column needs a name.
-
-**Error responses:**
-
-| HTTP | Condition |
-|---|---|
-| 401 | Missing or invalid Bearer token (`PUT` only) |
-| 404 | Chain not found |
-| 422 | Malformed body, blank `name`, negative `index`, or duplicate `index` |
 
 ---
 
@@ -525,16 +469,14 @@ Holds `HttpClient`, base URI, username, and chain name.
 | `getInfo()` | `GET /info` | public | implemented |
 | `getSalts(token)` | `GET /salts` | Bearer | implemented |
 | `getSqlConfig(token)` | `GET /sql-config` | Bearer | implemented |
-| `getColumns()` | `GET /columns` | public | implemented |
-| `putColumns(token, List<ColumnInfo>)` | `PUT /columns` | Bearer | implemented |
 | `getState()` | `GET /state` | public | implemented |
 | `getState(rows, plusLatest, compress)` | `GET /state?rows=...&latest=...&compress=0\|1` | public | implemented |
 | `commit(token, CommitRequest)` → `RowCount` | `POST /commit` | Bearer | implemented |
 
-The same Bearer access token is used for `/salts`, `/sql-config`, `PUT
-/columns`, and `/commit`. A missing or invalid token raises
-`SecurityException` (unchecked). A hash conflict on `/commit` raises
-`HashConflictException` (HTTP 409).
+The same Bearer access token is used for `/salts`, `/sql-config`, and
+`/commit`. A missing or invalid token raises `SecurityException`
+(unchecked). A hash conflict on `/commit` raises `HashConflictException`
+(HTTP 409).
 
 `getState()` with no arguments sends no query parameters (server defaults to
 row 1 + latest, compressed).  The parameterised overload lets callers request
@@ -546,10 +488,9 @@ flags.
 - Object-returning endpoints (`/info`, `/sql-config`, `/state`, `/commit`)
   use each API type's `PARSER.toEntity(String)` directly — no intermediate
   `JSONObject` construction needed.
-- `/salts` and `/columns` each return a JSON array; `/salts` goes through
+- `/salts` returns a JSON array, read via
   `TableSaltReader.READER.toTableSalt(JSONArray)`, which assembles all epoch
-  seeds into a single `TableSalt`, while `/columns` uses
-  `ColumnInfo.PARSER.toEntityList(JSONArray)`.
+  seeds into a single `TableSalt`.
 - The `/state` PathPack uses field names `stitch_rows`, `compression`, `hashes`
   with `enc=b64` (Base64_32), matched by the static `STATE_PARSER`.
 

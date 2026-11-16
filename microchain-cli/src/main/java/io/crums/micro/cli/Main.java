@@ -24,11 +24,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.TimeZone;
-import java.util.TreeMap;
 import java.util.concurrent.Callable;
 
 import io.crums.micro.api.ChainInfo;
-import io.crums.micro.api.ColumnInfo;
 import io.crums.micro.api.CommitRequest;
 import io.crums.micro.api.DbConfig;
 import io.crums.micro.api.LocalConfig;
@@ -83,7 +81,6 @@ import picocli.CommandLine.Spec;
         Main.StatusCommand.class,
         Main.InfoCommand.class,
         Main.RowsCommand.class,
-        Main.ColumnsCommand.class,
         Main.ConfigCommand.class,
         Main.ReceiptCommand.class,
         Main.RedactCommand.class,
@@ -837,125 +834,6 @@ public class Main implements Runnable {
   }
 
 
-  // -- columns ------------------------------------------------------------------
-
-  @Command(
-      name = "columns",
-      description = {
-          "View or set column metadata (GET/PUT /{user}/{chain}/columns).",
-          "",
-          """
-          With no --name / --description / --clear options, prints the chain's \
-          current column metadata (public, no token required).""",
-          "",
-          """
-          With any of those options, merges them into the chain's current column \
-          list -- existing entries not mentioned are left unchanged -- then PUTs the \
-          full merged list back (requires a token)."""
-      })
-  static class ColumnsCommand implements Callable<Integer> {
-
-    @Mixin ChainOptions opts;
-
-    @Option(names = {"--local-config", "-c"}, paramLabel = "<file>",
-        description = "Local JSON config file; the selected chain's (see --chain) 'chain_url' and/or 'access_token' fields may replace the <chain-url> argument / --token.")
-    File localConfigFile;
-
-    @Option(names = {"--token", "-t"},
-        description = "Bearer access token; required when setting column metadata.")
-    String token;
-
-    @Option(names = {"--name"}, paramLabel = "<index>=<name>",
-        description = "Set the name for the given 0-based column index. Repeatable.")
-    Map<Integer, String> names;
-
-    @Option(names = {"--description"}, paramLabel = "<index>=<description>",
-        description = "Set the description for the given 0-based column index. Repeatable.")
-    Map<Integer, String> descriptions;
-
-    @Option(names = {"--clear"}, paramLabel = "<index>",
-        description = "Remove the given 0-based column index from the chain's column metadata. Repeatable.")
-    List<Integer> clear;
-
-    @Override
-    public Integer call() throws Exception {
-      ChainConfig localCfg = resolveLocalConfig(localConfigFile, opts.chainAlias);
-      if (localCfg == null) return 1;
-
-      URI effectiveUrl = effectiveChainUrl(opts, localCfg);
-      if (effectiveUrl == null) {
-        System.err.println("ERROR: chain URL is required; pass as argument, or configure " +
-            "a resolvable chain_url (or --base-chain-url) in --local-config");
-        return 1;
-      }
-      ChainClient client = newClient(effectiveUrl);
-
-      boolean writing = (names != null && !names.isEmpty())
-          || (descriptions != null && !descriptions.isEmpty())
-          || (clear != null && !clear.isEmpty());
-
-      if (!writing) {
-        printColumns(client.getColumns());
-        return 0;
-      }
-
-      String effectiveToken = token != null ? token : localCfg.accessToken().orElse(null);
-      if (effectiveToken == null) {
-        System.err.println("ERROR: bearer token required to set column metadata; " +
-            "use --token or add 'access_token' to --local-config");
-        return 1;
-      }
-
-      Map<Integer, ColumnInfo> merged = new TreeMap<>();
-      for (ColumnInfo c : client.getColumns())
-        merged.put(c.index(), c);
-
-      if (names != null) {
-        for (var e : names.entrySet()) {
-          int index = e.getKey();
-          if (index < 0) {
-            System.err.println("ERROR: --name index < 0: " + index);
-            return 1;
-          }
-          var existing = merged.get(index);
-          var description = existing == null ? Optional.<String>empty() : existing.description();
-          merged.put(index, new ColumnInfo(index, e.getValue(), description));
-        }
-      }
-      if (descriptions != null) {
-        for (var e : descriptions.entrySet()) {
-          int index = e.getKey();
-          var existing = merged.get(index);
-          if (existing == null) {
-            System.err.println("ERROR: --description for index " + index +
-                " requires a name (existing on the server, or via --name)");
-            return 1;
-          }
-          merged.put(index, new ColumnInfo(index, existing.name(), Optional.of(e.getValue())));
-        }
-      }
-      if (clear != null)
-        clear.forEach(merged::remove);
-
-      List<ColumnInfo> result = List.copyOf(merged.values());
-      client.putColumns(effectiveToken, result);
-      printColumns(result);
-      return 0;
-    }
-
-    private void printColumns(List<ColumnInfo> columns) {
-      if (columns.isEmpty()) {
-        System.out.println("(no column metadata configured)");
-        return;
-      }
-      for (ColumnInfo c : columns) {
-        System.out.printf("  [%d] %-20s%s%n", c.index(), c.name(),
-            c.description().map(d -> "  " + d).orElse(""));
-      }
-    }
-  }
-
-
   // -- rows ---------------------------------------------------------------------
 
   @Command(
@@ -1138,8 +1016,7 @@ public class Main implements Runnable {
       if (rows.isEmpty()) {
         System.out.println("(no matching rows)");
       } else {
-        List<ColumnInfo> serverColumns = client != null ? client.getColumns() : List.of();
-        List<String> columnLabels = resolveColumnLabels(serverColumns, jdbcLabels);
+        List<String> columnLabels = resolveColumnLabels(jdbcLabels);
         for (SourceRow row : rows)
           printRow(row, pretty, columnLabels, effectiveTz);
       }
@@ -1147,22 +1024,18 @@ public class Main implements Runnable {
     }
 
     /**
-     * Resolves per-index display labels, sized to {@code jdbcLabels} -- captured
-     * from the same {@code ResultSetMetaData} that produced the row's cells, so
-     * it always matches the row's actual cell count (unlike {@code serverColumns},
-     * a disconnected, possibly-stale, possibly-sparse config). A server-configured
-     * {@link ColumnInfo#name()} wins over the JDBC label when both are present;
-     * {@code null} means the caller falls back to a bare positional index.
+     * Blanks out any JDBC label SQL didn't actually give a name (JDBC's
+     * fallback is the column's own ordinal position, e.g. {@code "1"}, not a
+     * sentinel) -- the caller falls back to a bare positional index instead.
+     * Name columns deliberately via SQL {@code AS} to get a real label here.
      */
-    private List<String> resolveColumnLabels(List<ColumnInfo> serverColumns, List<String> jdbcLabels) {
+    private List<String> resolveColumnLabels(List<String> jdbcLabels) {
       int size = jdbcLabels.size();
       String[] labels = new String[size];
       for (int i = 0; i < size; i++) {
         String jdbcLabel = jdbcLabels.get(i);
         labels[i] = jdbcLabel != null && !jdbcLabel.isBlank() ? jdbcLabel : null;
       }
-      for (ColumnInfo c : serverColumns)
-        if (c.index() < size) labels[c.index()] = c.name();
       return Arrays.asList(labels);
     }
 
@@ -1194,8 +1067,6 @@ public class Main implements Runnable {
           for (int i = 0; i < cells.size(); i++) {
             DataType t = types.get(i);
             String label = i < columnLabels.size() ? columnLabels.get(i) : null;
-            // 0-based, matching mchain columns'
-            // --name/--description/--clear index convention.
             if (label == null)
               System.out.printf(noLabelFmt, i, vals[i], t);
             else

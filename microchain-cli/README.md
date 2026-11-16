@@ -26,7 +26,6 @@ Version omitted for now — not yet published anywhere resolvable outside this r
 | `mchain commit-all` | Run `commit` for every chain in a local config file |
 | `mchain status <chain-url>` | Print the current committed row count |
 | `mchain info <chain-url>` | Print chain metadata (salted, title, description) |
-| `mchain columns <chain-url>` | View (public) or set (Bearer) a chain's column name/description metadata |
 | `mchain rows` | Query source rows from the local SQL ledger |
 | `mchain config <file> set` | Create or update a local config JSON file |
 | `mchain receipt generate` | Generate a draft receipt from a `receipt_templates` entry |
