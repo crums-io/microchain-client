@@ -112,7 +112,7 @@ A `ReceiptGeneratorTemplate` is a named, reusable recipe for producing a
 directly by the caller's generation-time input, each later one deriving
 its own lookup value(s) — via `ROW_NO(:alias)` or `:alias.column` — from a
 row already resolved by an earlier step. See the top-level README's
-[Receipt templates](../README.md#receipt-templates) section for the full
+[Receipt-generator templates](../README.md#receipt-generator-templates) section for the full
 worked example.
 
 ## Dependencies
