@@ -390,13 +390,6 @@ or — for `/count` — a `RowCount`. Both are shared types defined in
 `microchain-api` (`io.crums.micro.api.receipt.SourceReceipt`,
 `io.crums.micro.api.RowCount`); the latter is also what `/commit` returns.
 
-`_receipt_templates` is the one `SourceLedger` exposed this way today: its
-rows are every template version this user has ever published, across all
-names, ordered by publish order — row number *is* `chain_row_number` (see
-[Receipt-generator templates](../README.md#receipt-generator-templates) for the client-side
-generation workflow; the templates resource's own `GET`/`POST
-/{user}/_receipt_templates[/{name}]` endpoints aren't documented here yet).
-
 #### `GET /_receipt_templates.src` — direct source-row read
 
 ```sh
